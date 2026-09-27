@@ -1,11 +1,33 @@
 "use strict";
 const { app, BrowserWindow, ipcMain, dialog } = require("electron");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 
 const rootDir = path.resolve(__dirname, "..");
 let backendProcess = null;
+let predictionProcess = null;
+
+function resolvePythonCommand() {
+  if (process.env.AI_MATERIALS_PYTHON) return process.env.AI_MATERIALS_PYTHON;
+  return process.platform === "win32" ? "python" : "python3";
+}
+
+function resolvePredictionDir() {
+  if (process.env.AI_MATERIALS_PLATFORM_DIR) {
+    return path.resolve(process.env.AI_MATERIALS_PLATFORM_DIR);
+  }
+  return path.resolve(rootDir, "..", "prediction"); // monorepo layout
+}
+
+function pythonHasModule(pythonCommand, moduleName) {
+  try {
+    const result = spawnSync(pythonCommand, ["-c", `import ${moduleName}`], { windowsHide: true });
+    return result.status === 0;
+  } catch (_) {
+    return false;
+  }
+}
 
 function startBackend() {
   const pythonCommand = process.platform === "win32" ? "python" : "python3";
@@ -81,9 +103,65 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   if (backendProcess && !backendProcess.killed) backendProcess.kill();
+  if (predictionProcess && !predictionProcess.killed) predictionProcess.kill();
 });
 
 ipcMain.handle("app:getBackendUrl", () => "http://127.0.0.1:8765");
+
+ipcMain.handle("app:close", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) win.close();
+  return { closed: true };
+});
+
+ipcMain.handle("prediction:open", async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const predictionDir = resolvePredictionDir();
+  const entry = path.join(predictionDir, "main.py");
+
+  if (!fs.existsSync(entry)) {
+    dialog.showErrorBox(
+      "물성 예측 앱을 찾을 수 없음",
+      `예측 앱 진입점이 없습니다:\n${entry}\n\nAI_MATERIALS_PLATFORM_DIR 환경변수를 확인하세요.`
+    );
+    return { started: false, reason: "not-found" };
+  }
+
+  if (predictionProcess && !predictionProcess.killed) {
+    return { started: true, reused: true };
+  }
+
+  const pythonCommand = resolvePythonCommand();
+  if (!pythonHasModule(pythonCommand, "PyQt6")) {
+    dialog.showErrorBox(
+      "예측 앱 의존성 없음",
+      `PyQt6을 찾을 수 없습니다.\n\n모노레포 루트에서 먼저 설치하세요:\n pip install -r requirements.txt`
+    );
+    return { started: false, reason: "missing-deps" };
+  }
+
+  try {
+    predictionProcess = spawn(pythonCommand, [entry], {
+      cwd: predictionDir,
+      stdio: "ignore",
+      windowsHide: false
+    });
+    predictionProcess.on("error", (err) => {
+      predictionProcess = null;
+      dialog.showErrorBox("물성 예측 앱 실행 실패", String(err?.message ?? err));
+    });
+    predictionProcess.on("exit", () => {
+      predictionProcess = null;
+    });
+  } catch (err) {
+    predictionProcess = null;
+    dialog.showErrorBox("물성 예측 앱 실행 실패", String(err?.message ?? err));
+    return { started: false, reason: "spawn-failed" };
+  }
+
+  if (win) win.blur();
+  return { started: true, path: predictionDir };
+});
 
 ipcMain.handle("simulation:saveToWorkspace", async (_event, { alloyName, prediction, simulation, composition, process: proc }) => {
   const workspacesRoot = process.env.AI_MAPS_WORKSPACE_ROOT
