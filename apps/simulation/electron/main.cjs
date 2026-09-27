@@ -258,7 +258,7 @@ ipcMain.handle("prediction:open", async (event) => {
     predictionProcess = spawn(pythonCommand, [entry], {
       cwd: predictionDir,
       stdio: ["ignore", childOut, childErr],
-      windowsHide: false
+      windowsHide: true
     });
     predictionProcess.on("error", (err) => {
       predictionProcess = null;
