@@ -317,9 +317,16 @@ class UISetupMixin:
         import os
         from pathlib import Path
         from PyQt6.QtWidgets import QMessageBox
-        sim_dir = os.environ.get(
-            "AI_MATERIALS_SIMULATION_DIR",
-            str(Path(__file__).parents[4] / "ai-materials-discovery-platform-simulation"),
+        sim_dir = os.environ.get("AI_MATERIALS_SIMULATION_DIR") or next(
+            (
+                str(candidate)
+                for candidate in (
+                    Path(__file__).parents[4] / "simulation",  # monorepo layout
+                    Path(__file__).parents[4] / "ai-materials-discovery-platform-simulation",  # legacy checkout
+                )
+                if candidate.exists()
+            ),
+            str(Path(__file__).parents[4] / "simulation"),
         )
         if not Path(sim_dir).exists():
             QMessageBox.warning(self, "경로 없음", f"시뮬레이션 레포를 찾을 수 없습니다:\n{sim_dir}")
