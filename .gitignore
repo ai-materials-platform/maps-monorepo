@@ -42,6 +42,9 @@ apps/prediction/dist_python/
 projects/*
 !projects/.gitkeep
 
+# ---- Runtime logs ----
+apps/simulation/logs/
+
 # ---- OS ----
 .DS_Store
 Thumbs.db
