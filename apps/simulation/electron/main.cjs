@@ -9,6 +9,24 @@ let backendProcess = null;
 let predictionProcess = null;
 let appQuitting = false;
 
+// 중복 실행 방지: 두 번째 인스턴스는 종료하고 기존 창을 앞으로 가져온다.
+// (프로필 캐시 잠금 충돌 + 백엔드 중복 기동 방지)
+const gotSingleLock = app.requestSingleInstanceLock();
+if (!gotSingleLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+    const target = wins[0];
+    if (target) {
+      try {
+        if (target.isMinimized()) target.restore();
+        target.focus();
+      } catch (_) {}
+    }
+  });
+}
+
 // 크래시 추적용 파일 로그 (다음 "갑자기 꺼짐" 원인 파악용)
 const logDir = path.join(rootDir, "logs");
 try { fs.mkdirSync(logDir, { recursive: true }); } catch (_) {}

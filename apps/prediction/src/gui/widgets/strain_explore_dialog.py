@@ -20,6 +20,9 @@ from PyQt6.QtWidgets import (
 
 _SLIDER_STEPS = 1000
 
+# NumPy 2.0에서 np.trapz가 삭제되고 np.trapezoid로 개명됨. 양쪽 버전 호환.
+_trapezoid = getattr(np, "trapezoid", getattr(np, "trapz", None))
+
 _COLUMN_RANGES = {
     "C":  (0.01, 0.30),
     "Si": (0.10, 3.00),
@@ -561,7 +564,7 @@ class StrainExploreDialog(QDialog):
         ax.axvspan(uts_x,   frac_x,  color=seg_colors["necking"],   alpha=0.05 if d else 0.03)
 
         # ── 인성 면적 (중립 회색) ─────────────────────────────────────────────
-        toughness = float(np.trapz(stress, strain))
+        toughness = float(_trapezoid(stress, strain))
         ax.fill_between(strain, stress,
                         color="#6B7280" if d else "#9CA3AF",
                         alpha=0.10 if d else 0.08, zorder=1)
