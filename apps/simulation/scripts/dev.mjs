@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { setTimeout as wait } from "node:timers/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -36,9 +36,25 @@ async function waitForVite() {
   throw new Error("Vite dev server did not become ready on port 5173.");
 }
 
+function killTree(child) {
+  if (!child || child.killed || !child.pid) return;
+  // Windows: child.kill()은 npx 래퍼만 죽이고 손자 Vite가 고아로 남는다. 트리째 종료한다.
+  if (isWindows) {
+    try {
+      spawnSync("taskkill", ["/F", "/T", "/PID", String(child.pid)], { stdio: "ignore" });
+      return;
+    } catch (_) {
+      // fall through to child.kill()
+    }
+  }
+  try {
+    child.kill();
+  } catch (_) {}
+}
+
 function shutdown() {
   for (const child of children) {
-    if (!child.killed) child.kill();
+    killTree(child);
   }
 }
 
