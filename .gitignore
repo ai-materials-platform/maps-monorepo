@@ -45,6 +45,9 @@ projects/*
 # ---- Runtime logs ----
 apps/simulation/logs/
 
+# ---- Local workspace saves ----
+apps/workspaces/
+
 # ---- OS ----
 .DS_Store
 Thumbs.db
