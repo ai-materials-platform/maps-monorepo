@@ -29,6 +29,28 @@ function pythonHasModule(pythonCommand, moduleName) {
   }
 }
 
+function focusPredictionWindow() {
+  // 이미 떠 있는 예측(PyQt) 창을 앞으로 가져온다. 타이틀로 식별한다:
+  // "MAPS — Microstructure & Alloy Prediction System" (시뮬레이션 창 "MAPS"와 구분)
+  if (process.platform !== "win32") return Promise.resolve(false);
+  const script = [
+    "$p = Get-Process | Where-Object { $_.MainWindowTitle -like 'MAPS*Microstructure*' } | Select-Object -First 1",
+    "if (-not $p -or -not $p.MainWindowHandle -or $p.MainWindowHandle -eq 0) { exit 1 }",
+    "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class MAPSWin { [DllImport(\"user32.dll\")] public static extern bool ShowWindow(System.IntPtr h, int n); [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(System.IntPtr h); [DllImport(\"user32.dll\")] public static extern bool IsIconic(System.IntPtr h); }'",
+    "if ([MAPSWin]::IsIconic($p.MainWindowHandle)) { [MAPSWin]::ShowWindow($p.MainWindowHandle, 9) | Out-Null }",
+    "if ([MAPSWin]::SetForegroundWindow($p.MainWindowHandle)) { exit 0 } else { exit 2 }"
+  ].join("; ");
+  return new Promise((resolve) => {
+    try {
+      const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true });
+      child.on("close", (code) => resolve(code === 0));
+      child.on("error", () => resolve(false));
+    } catch (_) {
+      resolve(false);
+    }
+  });
+}
+
 function startBackend() {
   const pythonCommand = process.platform === "win32" ? "python" : "python3";
   backendProcess = spawn(pythonCommand, [path.join(rootDir, "backend", "simulation_server.py")], {
@@ -147,7 +169,8 @@ ipcMain.handle("prediction:open", async (event) => {
   }
 
   if (predictionProcess && !predictionProcess.killed) {
-    return { started: true, reused: true };
+    const focused = await focusPredictionWindow();
+    return { started: true, reused: true, focused };
   }
 
   const pythonCommand = resolvePythonCommand();

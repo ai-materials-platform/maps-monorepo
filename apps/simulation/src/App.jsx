@@ -1092,8 +1092,11 @@ function App() {
             title="물성 예측 앱 열기"
             onClick={async () => {
               const result = await window.desktopApi?.openPrediction?.();
-              if (result?.reused) addLog("물성 예측 앱이 이미 실행 중입니다.");
-              else if (result && !result.started) addLog(`물성 예측 앱 실행 실패: ${result.reason ?? "unknown"}`);
+              if (result?.reused) {
+                addLog(result.focused ? "물성 예측 창을 앞으로 가져왔습니다." : "물성 예측 앱이 이미 실행 중입니다.");
+              } else if (result && !result.started) {
+                addLog(`물성 예측 앱 실행 실패: ${result.reason ?? "unknown"}`);
+              }
             }}
             style={{
               display: "flex", alignItems: "center", gap: 5,
