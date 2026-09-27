@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const rootDir = path.resolve(__dirname, "..");
 let backendProcess = null;
 let predictionProcess = null;
+let appQuitting = false;
 
 function resolvePythonCommand() {
   if (process.env.AI_MATERIALS_PYTHON) return process.env.AI_MATERIALS_PYTHON;
@@ -27,6 +28,30 @@ function pythonHasModule(pythonCommand, moduleName) {
   } catch (_) {
     return false;
   }
+}
+
+function waitForPredictionWindow(timeoutMs = 30000) {
+  // PyQt 기동(TF 임포트 등)이 끝날 때까지 최대 timeoutMs만큼 대기한다.
+  // powershell 한 번으로 폴링해서 프로세스 생성 비용을 아낀다.
+  if (process.platform !== "win32") return Promise.resolve(false);
+  const attempts = Math.max(1, Math.round(timeoutMs / 500));
+  const script = [
+    `for ($i = 0; $i -lt ${attempts}; $i++) {`,
+    "  $p = Get-Process | Where-Object { $_.MainWindowTitle -like 'MAPS*Microstructure*' } | Select-Object -First 1",
+    "  if ($p -and $p.MainWindowHandle -ne 0) { exit 0 }",
+    "  Start-Sleep -Milliseconds 500",
+    "}",
+    "exit 1"
+  ].join("\n");
+  return new Promise((resolve) => {
+    try {
+      const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true });
+      child.on("close", (code) => resolve(code === 0));
+      child.on("error", () => resolve(false));
+    } catch (_) {
+      resolve(false);
+    }
+  });
 }
 
 function focusPredictionWindow() {
@@ -143,6 +168,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  appQuitting = true;
   if (backendProcess && !backendProcess.killed) backendProcess.kill();
   if (predictionProcess && !predictionProcess.killed) predictionProcess.kill();
 });
@@ -194,6 +220,18 @@ ipcMain.handle("prediction:open", async (event) => {
     });
     predictionProcess.on("exit", () => {
       predictionProcess = null;
+      // 예측 창이 닫히면 최소화된 시뮬레이션 창을 다시 앞으로 (왕복 UX).
+      // 단, 앱 종료 중이거나 창이 이미 없어진 경우는 제외.
+      try {
+        if (!appQuitting) {
+          const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+          const target = wins.find((w) => w !== win) ?? wins[0];
+          if (target && target.isMinimized()) {
+            target.restore();
+            target.focus();
+          }
+        }
+      } catch (_) {}
     });
   } catch (err) {
     predictionProcess = null;
@@ -201,8 +239,17 @@ ipcMain.handle("prediction:open", async (event) => {
     return { started: false, reason: "spawn-failed" };
   }
 
-  if (win) win.blur();
-  return { started: true, path: predictionDir };
+  // 예측 창이 실제로 뜰 때까지 시뮬레이션 창을 앞에 유지한다 (크롬 플래시 방지).
+  // 뜨는 게 확인되면 시뮬레이션을 최소화하고 예측 창으로 포커스를 넘긴다.
+  const appeared = await waitForPredictionWindow(30000);
+  if (appeared) {
+    try {
+      if (win && !win.isDestroyed() && win.isMinimizable()) win.minimize();
+    } catch (_) {}
+    const focused = await focusPredictionWindow();
+    return { started: true, path: predictionDir, focused };
+  }
+  return { started: true, path: predictionDir, focused: false };
 });
 
 ipcMain.handle("simulation:saveToWorkspace", async (_event, { alloyName, prediction, simulation, composition, process: proc }) => {

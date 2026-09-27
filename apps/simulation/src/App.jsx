@@ -541,6 +541,7 @@ function App() {
   const [playhead, setPlayhead] = useState(0);
   const [testTemp, setTestTemp] = useState(20);
   const [isPredicting, setIsPredicting] = useState(false);
+  const [isOpeningPrediction, setIsOpeningPrediction] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [platformStatus, setPlatformStatus] = useState({ available: false, error: "확인 중" });
   const [predictionUrl, setPredictionUrl] = useState("");
@@ -1090,12 +1091,21 @@ function App() {
           </button>
           <button
             title="물성 예측 앱 열기"
+            disabled={isOpeningPrediction}
             onClick={async () => {
-              const result = await window.desktopApi?.openPrediction?.();
-              if (result?.reused) {
-                addLog(result.focused ? "물성 예측 창을 앞으로 가져왔습니다." : "물성 예측 앱이 이미 실행 중입니다.");
-              } else if (result && !result.started) {
-                addLog(`물성 예측 앱 실행 실패: ${result.reason ?? "unknown"}`);
+              if (isOpeningPrediction) return;
+              setIsOpeningPrediction(true);
+              try {
+                const result = await window.desktopApi?.openPrediction?.();
+                if (result?.reused) {
+                  addLog(result.focused ? "물성 예측 창을 앞으로 가져왔습니다." : "물성 예측 앱이 이미 실행 중입니다.");
+                } else if (result && !result.started) {
+                  addLog(`물성 예측 앱 실행 실패: ${result.reason ?? "unknown"}`);
+                } else if (result && !result.focused) {
+                  addLog("물성 예측 앱을 시작했습니다. 창이 보이지 않으면 작업표시줄을 확인하세요.");
+                }
+              } finally {
+                setIsOpeningPrediction(false);
               }
             }}
             style={{
@@ -1107,6 +1117,7 @@ function App() {
             }}
           >
             물성 예측 ↗
+            {isOpeningPrediction ? " (시작 중...)" : ""}
           </button>
           <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.1)", margin: "0 4px" }} />
         </div>
