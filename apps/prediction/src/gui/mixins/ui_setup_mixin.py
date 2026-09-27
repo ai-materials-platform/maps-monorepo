@@ -315,8 +315,32 @@ class UISetupMixin:
     def _open_simulation_app(self):
         import subprocess
         import os
+        import socket
         from pathlib import Path
         from PyQt6.QtWidgets import QMessageBox
+
+        def _tcp_open(host, port, timeout=0.4):
+            try:
+                with socket.create_connection((host, port), timeout=timeout):
+                    return True
+            except OSError:
+                return False
+
+        # Single instance: simulation already up -> bring it forward, don't spawn another
+        if _tcp_open("127.0.0.1", 5173):
+            if os.name == "nt":
+                try:
+                    import ctypes
+                    hwnd = ctypes.windll.user32.FindWindowW(None, "MAPS")
+                    if hwnd:
+                        ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                        ctypes.windll.user32.SetForegroundWindow(hwnd)
+                        return
+                except Exception:
+                    pass
+            QMessageBox.information(self, "실행 중", "시뮬레이션이 이미 실행 중입니다.")
+            return
+
         sim_dir = os.environ.get("AI_MATERIALS_SIMULATION_DIR") or next(
             (
                 str(candidate)
