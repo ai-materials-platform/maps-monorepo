@@ -52,7 +52,20 @@ process.on("SIGTERM", () => {
   process.exit(0);
 });
 
-run(npx, ["vite", "--host", "127.0.0.1", "--port", "5173"]);
+async function isViteUp() {
+  try {
+    const response = await fetch("http://127.0.0.1:5173");
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+if (await isViteUp()) {
+  console.log("[dev] port 5173 already serving — reusing existing Vite instance");
+} else {
+  run(npx, ["vite", "--host", "127.0.0.1", "--port", "5173"]);
+}
 await waitForVite();
 
 const { ELECTRON_RUN_AS_NODE: _removed, ...cleanEnv } = process.env;

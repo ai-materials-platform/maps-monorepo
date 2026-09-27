@@ -359,7 +359,11 @@ class UISetupMixin:
         kwargs = {"cwd": sim_dir, "shell": False, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        subprocess.Popen([npm, "run", "dev"], **kwargs)
+        try:
+            self._simulation_process = subprocess.Popen([npm, "run", "dev"], **kwargs)
+        except Exception as exc:
+            self._simulation_process = None
+            QMessageBox.warning(self, "실행 실패", f"시뮬레이션을 시작하지 못했습니다:\n{exc}")
 
     def _switch_main_mode(self, index):
         if hasattr(self, "main_mode_stack"):
@@ -1198,7 +1202,24 @@ class UISetupMixin:
             self._llm_chat_dialog.hide()
 
     def closeEvent(self, event):
+        import os
         self._set_floating_visible(False)
+        # 예측 창이 닫히면 여기서 띄운 시뮬레이션도 함께 종료 (고아 프로세스 방지)
+        proc = getattr(self, "_simulation_process", None)
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    if os.name == "nt":
+                        import subprocess
+                        subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                            capture_output=True,
+                        )
+                    else:
+                        proc.terminate()
+            except Exception:
+                pass
+            self._simulation_process = None
         event.accept()
 
     def hideEvent(self, event):
@@ -1218,6 +1239,36 @@ class UISetupMixin:
         if event.type() == QEvent.Type.WindowStateChange:
             minimized = bool(self.windowState() & Qt.WindowState.WindowMinimized)
             self._set_floating_visible(not minimized)
+        elif event.type() == QEvent.Type.ActivationChange:
+            # 메인 창이 비활성화되면(다른 앱으로 포커스 이동) 플로팅 아이콘도 함께 숨긴다.
+            # WindowStaysOnTopHint가 시스템 전역이라 그대로 두면 크롬 위에도 떠 있기 때문.
+            self._sync_floating_with_activation()
+
+    def _sync_floating_with_activation(self):
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QApplication
+
+        def _apply():
+            active = QApplication.activeWindow()
+            if active is None:
+                # 포커스가 우리 앱을 완전히 벗어남(다른 앱 클릭) → 플로팅 레이어 숨김 (위치는 유지됨)
+                # NOTE: 우리 다이얼로그/아이콘 클릭 시에는 activeWindow가 유지되므로 숨기지 않는다.
+                dlg = getattr(self, "_llm_dialog", None) or getattr(self, "_llm_chat_dialog", None)
+                self._llm_dialog_was_visible = bool(dlg is not None and dlg.isVisible())
+                self._set_floating_visible(False)
+            else:
+                # 우리 앱 안으로 복귀 → 최소화 상태가 아니면 복원
+                minimized = bool(self.windowState() & Qt.WindowState.WindowMinimized)
+                if not minimized and not self.isHidden():
+                    self._set_floating_visible(True)
+                    if getattr(self, "_llm_dialog_was_visible", False):
+                        dlg = getattr(self, "_llm_dialog", None) or getattr(self, "_llm_chat_dialog", None)
+                        if dlg is not None:
+                            dlg.show()
+                            dlg.raise_()
+                    self._llm_dialog_was_visible = False
+
+        QTimer.singleShot(0, _apply)
 
     def show_quality_help(self):
         help_text = """

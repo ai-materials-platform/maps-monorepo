@@ -38,6 +38,25 @@ function startBackend() {
   });
 }
 
+function isPortOpen(port, host = "127.0.0.1", timeout = 600) {
+  const net = require("node:net");
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host, port });
+    socket.once("connect", () => { socket.destroy(); resolve(true); });
+    socket.once("error", () => resolve(false));
+    socket.setTimeout(timeout, () => { socket.destroy(); resolve(false); });
+  });
+}
+
+async function ensureBackend() {
+  // 크래시 잔재 등 이미 떠 있는 백엔드가 있으면 재사용 (중복 기동 방지)
+  if (await isPortOpen(8765)) {
+    console.log("[main] backend :8765 already up — reusing");
+    return;
+  }
+  startBackend();
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1600,
@@ -88,8 +107,8 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
-  startBackend();
+app.whenReady().then(async () => {
+  await ensureBackend();
   createWindow();
 
   app.on("activate", () => {
