@@ -9,6 +9,22 @@ let backendProcess = null;
 let predictionProcess = null;
 let appQuitting = false;
 
+// 크래시 추적용 파일 로그 (다음 "갑자기 꺼짐" 원인 파악용)
+const logDir = path.join(rootDir, "logs");
+try { fs.mkdirSync(logDir, { recursive: true }); } catch (_) {}
+const logFile = path.join(logDir, "sim-main.log");
+function fileLog(...args) {
+  const line = `[${new Date().toISOString()}] ${args.map((a) => String(a)).join(" ")}\n`;
+  try { fs.appendFileSync(logFile, line); } catch (_) {}
+  console.log(...args);
+}
+process.on("uncaughtException", (err) => {
+  fileLog("UNCAUGHT:", err?.stack ?? err);
+});
+process.on("unhandledRejection", (reason) => {
+  fileLog("UNHANDLED-REJECTION:", reason?.stack ?? reason ?? reason);
+});
+
 function resolvePythonCommand() {
   if (process.env.AI_MATERIALS_PYTHON) return process.env.AI_MATERIALS_PYTHON;
   return process.platform === "win32" ? "python" : "python3";
@@ -98,9 +114,10 @@ function isPortOpen(port, host = "127.0.0.1", timeout = 600) {
 async function ensureBackend() {
   // 크래시 잔재 등 이미 떠 있는 백엔드가 있으면 재사용 (중복 기동 방지)
   if (await isPortOpen(8765)) {
-    console.log("[main] backend :8765 already up — reusing");
+    fileLog("[main] backend :8765 already up — reusing");
     return;
   }
+  fileLog("[main] starting backend");
   startBackend();
 }
 
@@ -123,22 +140,22 @@ function createWindow() {
   });
 
   win.webContents.on("did-finish-load", () => {
-    console.log("[main] did-finish-load → showing window");
+    fileLog("[main] did-finish-load → showing window");
     win.show();
     win.focus();
   });
 
   win.webContents.on("did-fail-load", (_e, code, desc, url) => {
-    console.error("[main] did-fail-load:", code, desc, url);
+    fileLog("[main] did-fail-load:", code, desc, url);
     win.show();
   });
 
   win.webContents.on("render-process-gone", (_e, details) => {
-    console.error("[main] render-process-gone:", details.reason);
+    fileLog("[main] render-process-gone:", details.reason);
   });
 
   win.webContents.on("console-message", (_e, level, msg) => {
-    if (level >= 2) console.error("[renderer]", msg);
+    if (level >= 2) fileLog("[renderer]", msg);
   });
 
   setTimeout(() => {
@@ -164,10 +181,12 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
+  fileLog("[main] window-all-closed");
   if (process.platform !== "darwin") app.quit();
 });
 
 app.on("before-quit", () => {
+  fileLog("[main] before-quit");
   appQuitting = true;
   if (backendProcess && !backendProcess.killed) backendProcess.kill();
   if (predictionProcess && !predictionProcess.killed) predictionProcess.kill();
@@ -218,7 +237,8 @@ ipcMain.handle("prediction:open", async (event) => {
       predictionProcess = null;
       dialog.showErrorBox("물성 예측 앱 실행 실패", String(err?.message ?? err));
     });
-    predictionProcess.on("exit", () => {
+    predictionProcess.on("exit", (code, signal) => {
+      fileLog("[main] prediction exit:", code, signal);
       predictionProcess = null;
       // 예측 창이 닫히면 최소화된 시뮬레이션 창을 다시 앞으로 (왕복 UX).
       // 단, 앱 종료 중이거나 창이 이미 없어진 경우는 제외.
