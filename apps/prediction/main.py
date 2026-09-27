@@ -49,8 +49,24 @@ def _apply_rounded_corners(window):
         pass
 
 
+def _set_taskbar_app_id():
+    """작업표시줄에 MAPS 로고가 뜨도록 Windows AppUserModelID 지정.
+
+    지정하지 않으면 python.exe 기본 아이콘으로 그룹화된다.
+    electron-builder의 appId(com.maps.platform)와 일치시켜 패키징 후에도 동일 그룹으로 묶는다.
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("com.maps.platform")
+    except Exception:
+        pass
+
+
 def main():
     _load_env()
+    _set_taskbar_app_id()
     from src.gui.constants import LIGHT_QSS
 
     app = QApplication(sys.argv)
