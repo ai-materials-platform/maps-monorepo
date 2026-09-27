@@ -228,9 +228,18 @@ ipcMain.handle("prediction:open", async (event) => {
   }
 
   try {
+    // 예측 앱(PyQt) stdout/stderr를 로그 파일로 — 사라지는 크래시의 traceback 확보용
+    let childOut = "ignore";
+    let childErr = "ignore";
+    try {
+      const predLog = path.join(logDir, "prediction.out.log");
+      childOut = fs.openSync(predLog, "a");
+      childErr = childOut;
+      fs.writeSync(childOut, `\n===== prediction start ${new Date().toISOString()} =====\n`);
+    } catch (_) {}
     predictionProcess = spawn(pythonCommand, [entry], {
       cwd: predictionDir,
-      stdio: "ignore",
+      stdio: ["ignore", childOut, childErr],
       windowsHide: false
     });
     predictionProcess.on("error", (err) => {
