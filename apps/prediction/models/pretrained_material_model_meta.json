@@ -1,0 +1,19 @@
+{
+  "model_type": "RF",
+  "data_file": "STMECH_AUS_SS (1).xls",
+  "r2_avg": 0.8727,
+  "mae_avg": 7.3976,
+  "r2_per_target": [
+    0.8619,
+    0.9447,
+    0.8516,
+    0.8325
+  ],
+  "mae_per_target": [
+    12.0489,
+    13.8164,
+    2.9198,
+    0.8051
+  ],
+  "last_updated": "2026-06-18"
+}

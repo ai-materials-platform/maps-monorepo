@@ -1,0 +1,42 @@
+.DS_Store
+
+# 환경변수 (API 키 등 민감 정보)
+.env
+.env.local
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+
+# Editor settings
+.vscode/
+
+# Local app workspace state
+workspaces/
+
+# Local outputs and model artifacts
+run_log.txt
+final_error.txt
+models/*.pkl
+!models/pretrained_material_model.pkl
+!models/pretrained_data_engine.pkl
+data/*.xlsx
+data/*.xls
+data/*.pkl
+data/*.index
+data/*.data-*
+data/checkpoint
+
+gcm-diagnose.log*
+
+# 빌드 산출물
+dist_python/
+dist_electron/
+build_pyinstaller/
+*.spec
+assets/icon.ico
+assets/icon.icns

@@ -1,0 +1,47 @@
+# ---- Node ----
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+apps/shell/dist_electron/
+apps/shell/dist_python/
+apps/simulation/dist/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.vscode/
+
+# ---- Env / secrets ----
+.env
+.env.local
+
+# ---- Data / outputs (large, local only) ----
+run_log.txt
+final_error.txt
+apps/prediction/models/*.pkl
+!apps/prediction/models/pretrained_material_model.pkl
+!apps/prediction/models/pretrained_data_engine.pkl
+apps/prediction/data/*.xlsx
+apps/prediction/data/*.xls
+apps/prediction/data/*.pkl
+apps/prediction/data/*.index
+apps/prediction/data/*.data-*
+apps/prediction/data/checkpoint
+gcm-diagnose.log*
+
+# ---- Build outputs ----
+*.spec
+apps/shell/build_pyinstaller/
+apps/prediction/build_pyinstaller/
+apps/prediction/dist_python/
+
+# ---- Workspace results ----
+projects/*
+!projects/.gitkeep
+
+# ---- OS ----
+.DS_Store
+Thumbs.db

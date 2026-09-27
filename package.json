@@ -1,0 +1,20 @@
+{
+  "name": "maps-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MAPS monorepo: prediction (Python) + simulation (React+Electron) + shell (Electron launcher).",
+  "workspaces": [
+    "apps/shell",
+    "apps/simulation"
+  ],
+  "scripts": {
+    "install:all": "npm install --workspaces",
+    "dev:shell": "npm run dev --workspace=ai-materials-integrated-platform",
+    "dev:simulation": "npm run dev --workspace=ai-materials-discovery-platform-simulation",
+    "dev:prediction": "python apps/prediction/main.py",
+    "dev:prediction-api": "python apps/prediction/src/api/server.py",
+    "check": "node tools/check.mjs",
+    "check:shell": "npm run check --workspace=ai-materials-integrated-platform",
+    "check:simulation": "npm run build --workspace=ai-materials-discovery-platform-simulation"
+  }
+}

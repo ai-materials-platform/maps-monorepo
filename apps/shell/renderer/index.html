@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MAPS</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-area">
+        <button class="menu-button" id="menuToggleBtn" aria-label="메뉴">
+          <span></span><span></span><span></span>
+        </button>
+        <div class="divider"></div>
+        <svg class="brand-logo" viewBox="0 0 80 80" aria-hidden="true" width="32" height="32">
+          <circle cx="40" cy="40" r="38" fill="#0e1c40"/>
+          <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#4a9eff" stroke-width="1.8" opacity="0.9"/>
+          <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#4a9eff" stroke-width="1.8" opacity="0.9" transform="rotate(60 40 40)"/>
+          <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#4a9eff" stroke-width="1.8" opacity="0.9" transform="rotate(120 40 40)"/>
+          <circle cx="40" cy="40" r="5.8" fill="#4a9eff"/>
+          <circle cx="40" cy="40" r="2.7" fill="#ffffff"/>
+        </svg>
+        <div>
+          <h1>MAPS</h1>
+          <p>Microstructure &amp; Alloy Prediction System</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="icon-btn" aria-label="다크모드" id="darkModeBtn">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <button class="profile-button" aria-label="사용자">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <nav class="nav-list" aria-label="주 메뉴">
+          <button class="nav-item active" data-page="home"><span class="nav-icon home"></span><span class="nav-label">홈</span></button>
+          <button class="nav-item" data-page="results"><span class="nav-icon briefcase"></span><span class="nav-label">결과 저장소</span></button>
+          <button class="nav-item" data-page="projects"><span class="nav-icon folder"></span><span class="nav-label">프로젝트</span></button>
+          <button class="nav-item" data-page="settings"><span class="nav-icon gear"></span><span class="nav-label">설정</span></button>
+        </nav>
+        <div class="sidebar-bottom">
+          <button class="nav-item"><span class="nav-icon help"></span><span class="nav-label">도움말</span></button>
+          <div class="version">v1.0.0</div>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <!-- ── 결과 저장소 페이지 ── -->
+        <div id="page-results" class="page" style="display:none;">
+          <div class="section-heading">
+            <h2>결과 저장소</h2>
+            <p>프로젝트별 저장된 워크스페이스의 전처리 데이터를 Excel로 다운로드할 수 있습니다.</p>
+          </div>
+          <div class="rs-toolbar">
+            <button id="rsRefreshBtn" class="rs-refresh-btn">↻ 새로고침</button>
+          </div>
+          <div id="rsContent" class="rs-content">
+            <div class="rs-empty">저장된 결과가 없습니다.</div>
+          </div>
+        </div>
+        <!-- ── 프로젝트 페이지 ── -->
+        <div id="page-projects" class="page" style="display:none;">
+          <div class="section-heading">
+            <h2>프로젝트</h2>
+            <p>저장된 모든 프로젝트를 확인하고 실행할 수 있습니다.</p>
+          </div>
+          <div class="pg-toolbar">
+            <span id="pgProjectCount" class="pg-count"></span>
+            <button class="pg-new-btn" id="pgNewPredictionBtn">+ 새 물성예측</button>
+            <button class="pg-new-btn simulation" id="pgNewSimulationBtn">+ 새 시뮬레이션</button>
+          </div>
+          <div id="pgContent" class="pg-content"></div>
+        </div>
+        <!-- ── 홈 페이지 ── -->
+        <div id="page-home" class="page">
+        <div class="section-heading">
+          <h2>시작하기</h2>
+          <p>작업을 선택하여 시작하세요</p>
+        </div>
+
+        <div class="workflow-row">
+          <article class="workflow-card">
+            <div class="card-title-row">
+              <div class="circle-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9"/><path d="M12 19V5"/><path d="M19 19v-8"/></svg>
+              </div>
+              <h3>1. 물성 예측</h3>
+            </div>
+            <p class="card-copy">화학 조성 및 공정 조건을 입력하여<br />기계적 물성을 예측합니다.</p>
+            <ul class="feature-list">
+              <li>화학 조성 입력</li>
+              <li>공정 조건 설정</li>
+              <li>AI 모델 예측</li>
+              <li>결과 및 불확실성 확인</li>
+            </ul>
+            <button id="runPredictionBtn" class="action-button">물성 예측 시작 <span>→</span></button>
+          </article>
+
+          <div class="flow-sep" aria-hidden="true">›</div>
+
+          <article class="workflow-card">
+            <div class="card-title-row">
+              <div class="circle-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 7.5v9L12 21l8-4.5v-9L12 3Z"/><path d="M12 12 4.5 7.8"/><path d="M12 12v8.5"/><path d="m12 12 7.5-4.2"/></svg>
+              </div>
+              <h3>2. 시뮬레이션</h3>
+            </div>
+            <p class="card-copy">예측된 물성 데이터를 기반으로<br />다양한 시뮬레이션을 수행합니다.</p>
+            <ul class="feature-list">
+              <li>인장 / 굽힘 / 압축 시뮬레이션</li>
+              <li>응력·변형 분포 확인</li>
+              <li>파단 예측 및 분석</li>
+              <li>결과 시각화</li>
+            </ul>
+            <button id="runSimulationBtn" class="action-button">시뮬레이션 시작 <span>→</span></button>
+          </article>
+        </div>
+
+        <section class="recent-section">
+          <div class="recent-header">
+            <h3>최근 프로젝트</h3>
+            <button id="allProjectsBtn" class="more-link">더보기</button>
+          </div>
+          <div id="recentProjects" class="recent-grid"></div>
+        </section>
+        </div><!-- end #page-home -->
+
+        <!-- ── 설정 / 서비스 로그 페이지 ── -->
+        <div id="page-settings" class="page" style="display:none;">
+          <div class="section-heading">
+            <h2>설정 &amp; 서비스 로그</h2>
+          </div>
+          <section class="card" style="margin-bottom:1rem;">
+            <h3 style="margin:0 0 .75rem 0;font-size:.95rem;">서비스 로그</h3>
+            <p style="font-size:.8rem;color:var(--text-muted);margin:0 0 .5rem 0;">예측 앱 / 시뮬레이션 앱 실행 오류 확인용</p>
+            <div id="serviceLogBox" style="background:var(--bg-dark,#0f1117);color:#8ff;font-family:monospace;font-size:.78rem;padding:.75rem;border-radius:6px;height:340px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">(로그 없음)</div>
+            <button id="clearLogBtn" style="margin-top:.5rem;padding:.3rem .75rem;font-size:.8rem;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;">로그 지우기</button>
+          </section>
+        </div><!-- end #page-settings -->
+      </main>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- New Project Dialog -->
+  <div id="newProjectModal" class="np-modal">
+    <div class="np-card">
+      <div class="np-header">
+        <h2 id="npTitle">새 프로젝트</h2>
+      </div>
+      <div class="np-body">
+        <div class="np-field">
+          <label class="np-label" for="npNameInput">이름:</label>
+          <input id="npNameInput" class="np-input" type="text" autocomplete="off" spellcheck="false" />
+          <span id="npNameError" class="np-error"></span>
+        </div>
+        <div class="np-field">
+          <span class="np-label">유형:</span>
+          <span id="npTypeLabel" class="np-type-label"></span>
+        </div>
+      </div>
+      <div class="np-footer">
+        <button id="npCancelBtn" class="np-btn np-btn-cancel">취소</button>
+        <button id="npConfirmBtn" class="np-btn np-btn-confirm">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="loadingModal" class="loading-modal">
+    <div class="loading-card">
+      <p id="loadingMsg" class="loading-msg">실행 중...</p>
+      <div class="loading-bar-track">
+        <div id="loadingBar" class="loading-bar"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="splash" class="splash-overlay">
+    <div class="splash-card">
+      <div class="splash-logo">
+        <svg viewBox="0 0 80 80" aria-hidden="true">
+          <circle cx="40" cy="40" r="38" fill="#0e1c40" stroke="none"/>
+          <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#4a9eff" stroke-width="1.8" opacity="0.9"/>
+          <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#4a9eff" stroke-width="1.8" opacity="0.9" transform="rotate(60 40 40)"/>
+          <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#4a9eff" stroke-width="1.8" opacity="0.9" transform="rotate(120 40 40)"/>
+          <circle cx="40" cy="40" r="5.8" fill="#4a9eff"/>
+          <circle cx="40" cy="40" r="2.7" fill="#ffffff"/>
+        </svg>
+      </div>
+      <h1 class="splash-title">MAPS</h1>
+      <p class="splash-subtitle">Microstructure &amp; Alloy Prediction System</p>
+      <div class="splash-footer">
+        <span id="splashMsg" class="splash-msg">시스템 초기화 중...</span>
+        <span class="splash-copy">© 2026&nbsp; MAPS</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- All Projects Modal -->
+  <div id="allProjectsModal" class="ap-modal">
+    <div class="ap-card">
+      <div class="ap-header">
+        <h2>프로젝트 목록</h2>
+        <button id="apCloseBtn" class="ap-close-btn" aria-label="닫기">✕</button>
+      </div>
+      <div id="apProjectList" class="ap-list"></div>
+      <div class="ap-footer">
+        <span id="apProjectCount" class="ap-count"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Chat Button -->
+  <button id="chatFab" class="chat-fab" aria-label="AI 어시스턴트">
+    <svg viewBox="0 0 80 80" aria-hidden="true">
+      <circle cx="40" cy="40" r="38" fill="#0e1c40" stroke="none"/>
+      <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#4a9eff" stroke-width="1.8" opacity="0.9"/>
+      <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#4a9eff" stroke-width="1.8" opacity="0.9" transform="rotate(60 40 40)"/>
+      <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#4a9eff" stroke-width="1.8" opacity="0.9" transform="rotate(120 40 40)"/>
+      <circle cx="40" cy="40" r="5.8" fill="#4a9eff" stroke="none"/>
+      <circle cx="40" cy="40" r="2.7" fill="#ffffff" stroke="none"/>
+    </svg>
+  </button>
+
+  <!-- Chat Panel -->
+  <div id="chatPanel" class="chat-panel">
+    <div class="chat-panel-header">
+      <div class="chat-panel-title">
+        <span class="chat-avatar">
+          <svg viewBox="0 0 80 80" aria-hidden="true">
+            <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#4a9eff" stroke-width="1.8" opacity="0.9"/>
+            <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#4a9eff" stroke-width="1.8" opacity="0.9" transform="rotate(60 40 40)"/>
+            <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#4a9eff" stroke-width="1.8" opacity="0.9" transform="rotate(120 40 40)"/>
+            <circle cx="40" cy="40" r="5.8" fill="#4a9eff" stroke="none"/>
+            <circle cx="40" cy="40" r="2.7" fill="#ffffff" stroke="none"/>
+          </svg>
+        </span>
+        <div>
+          <strong>MAPS AI 어시스턴트</strong>
+          <small>재료 전문가</small>
+        </div>
+      </div>
+      <button id="chatCloseBtn" class="chat-close-btn" aria-label="닫기">✕</button>
+    </div>
+    <div id="chatMessages" class="chat-messages"></div>
+    <div class="chat-input-row">
+      <textarea id="chatInput" class="chat-input" placeholder="메시지 입력… (Enter=전송, Shift+Enter=줄바꿈)" rows="1"></textarea>
+      <button id="chatSendBtn" class="chat-send-btn" aria-label="전송">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

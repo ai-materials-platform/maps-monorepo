@@ -1,0 +1,2 @@
+# Unified python deps (from apps/prediction; simulation backend is stdlib-only)
+-r apps/prediction/requirements.txt

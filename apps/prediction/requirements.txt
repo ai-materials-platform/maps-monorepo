@@ -1,0 +1,17 @@
+tensorflow
+tensorflow-probability
+pandas
+xlrd
+openpyxl
+pyqt6
+flask
+flask-cors
+joblib
+matplotlib
+seaborn
+scikit-learn==1.7.2
+numpy
+xgboost
+lightgbm
+catboost
+requests
