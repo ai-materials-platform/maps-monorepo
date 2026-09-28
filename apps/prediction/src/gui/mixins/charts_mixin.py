@@ -461,6 +461,7 @@ class ChartsMixin:
             "discontinuous", "yield-point", "yield_point", "luders", "luders-plateau",
         )
         upper_yield_stress = None
+        lower_reached_x = None
         luders = 0.0
         if discontinuous:
             try:
@@ -490,15 +491,19 @@ class ChartsMixin:
             elastic_slope = upper_yield_stress / max(display_yield_strain, 1e-6)
             ex_lin = np.linspace(0.0, display_yield_strain, 60)
             ey_lin = elastic_slope * ex_lin
-            drop_eps = max(1e-6, fracture_strain * 1e-4)
+            # 상항복 → 하항복 낙하에 유한한 폭을 준다 (수직 낙하가 아닌 짧은 구간).
+            # 낙하폭 = Lüders 구간의 15% (너무 작아지지 않게 하한 보장).
+            drop_w = max(luders * 0.15, fracture_strain * 2e-4, 1e-6)
+            drop_end = display_yield_strain + drop_w
             elastic_x = np.concatenate([
                 ex_lin,
-                [display_yield_strain + drop_eps, plateau_end],
+                [drop_end, plateau_end],
             ])
             elastic_y = np.concatenate([
                 ey_lin,
                 [yield_stress, yield_stress],
             ])
+            lower_reached_x = drop_end
         else:
             elastic_slope = yield_stress / max(display_yield_strain, 1e-6)
             elastic_x = np.linspace(0.0, display_yield_strain, 60)
@@ -532,7 +537,8 @@ class ChartsMixin:
             "necking":   (necking_x, necking_y),
         }
         points = {
-            "Yield":    (display_yield_strain, yield_stress),
+            "Yield":    (lower_reached_x if discontinuous else display_yield_strain,
+                         yield_stress),
             "UTS":      (uts_strain,           uts),
             "Fracture": (fracture_strain,      fracture_stress),
         }
