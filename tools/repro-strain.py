@@ -157,6 +157,19 @@ try:
     dlg._update_curve()
     assert dlg._ch_ax.get_xlim()[1] <= 0.0600001
     print("ZOOM-PERSIST OK", flush=True)
+
+    # 리사이즈 후 크로스헤어 배경 자동 갱신 (첫 렌더 잔상 회귀 방지)
+    class FakeMotion:
+        inaxes = dlg._ch_ax
+        xdata = 0.1
+        ydata = 400.0
+
+    old_key = dlg._ch_bg_key
+    dlg.resize(1250, 750)
+    app.processEvents()
+    dlg._on_mouse_move(FakeMotion())
+    assert dlg._ch_bg_key is not None and dlg._ch_bg_key != old_key, (old_key, dlg._ch_bg_key)
+    print("BG-REFRESH OK key=", dlg._ch_bg_key[0], flush=True)
 except Exception:
     traceback.print_exc()
     print("DIALOG FAILED", flush=True)

@@ -84,6 +84,7 @@ class StrainExploreDialog(QDialog):
         self._ch_text = None
         self._ch_ax = None
         self._ch_bg = None
+        self._ch_bg_key = None
         self._zoomed = False
         self._zoom_limits = None
         self._full_limits = None
@@ -329,10 +330,7 @@ class StrainExploreDialog(QDialog):
         self._zoomed = False
         self._zoom_limits = None
         self._canvas.draw()
-        try:
-            self._ch_bg = self._canvas.copy_from_bbox(ax.bbox)
-        except Exception:
-            self._ch_bg = None
+        self._capture_bg()
 
     def _on_zoom_select(self, eclick, erelease):
         # 러버밴드 드래그 → 해당 영역으로 확대
@@ -355,10 +353,7 @@ class StrainExploreDialog(QDialog):
         self._zoomed = True
         self._zoom_limits = ((x0, x1), (y0, y1))
         self._canvas.draw()
-        try:
-            self._ch_bg = self._canvas.copy_from_bbox(ax.bbox)
-        except Exception:
-            self._ch_bg = None
+        self._capture_bg()
 
     # ── 이벤트 핸들러 ────────────────────────────────────────────────────────
 
@@ -466,8 +461,43 @@ class StrainExploreDialog(QDialog):
             self._slider.blockSignals(False)
         self._update_timer.start()
 
+    def _capture_bg(self):
+        # blitting용 배경 복사 + 캡처 시점의 크기 키를 함께 저장
+        ax = getattr(self, "_ch_ax", None)
+        if ax is None:
+            self._ch_bg = None
+            self._ch_bg_key = None
+            return
+        try:
+            self._ch_bg = self._canvas.copy_from_bbox(ax.bbox)
+            w, h = self._canvas.get_width_height()
+            self._ch_bg_key = (w, h, tuple(ax.bbox.bounds))
+        except Exception:
+            self._ch_bg = None
+            self._ch_bg_key = None
+
+    def _ensure_fresh_bg(self):
+        # 창 크기/축 배치가 바뀌면 기존 복사본이 어긋나 잔상이 남는다.
+        # 사용 직전에 검증하고, 어긋났으면 다시 그려서 갱신한다.
+        ax = getattr(self, "_ch_ax", None)
+        if ax is None or self._ch_bg is None:
+            return False
+        try:
+            w, h = self._canvas.get_width_height()
+            key = (w, h, tuple(ax.bbox.bounds))
+        except Exception:
+            return False
+        if key != getattr(self, "_ch_bg_key", None):
+            try:
+                self._canvas.draw()
+            except Exception:
+                return False
+            self._capture_bg()
+            return self._ch_bg is not None
+        return True
+
     def _on_mouse_move(self, event):
-        if self._ch_v is None or self._ch_bg is None:
+        if self._ch_v is None or not self._ensure_fresh_bg():
             return
 
         if event.inaxes != self._ch_ax:
@@ -759,7 +789,7 @@ class StrainExploreDialog(QDialog):
             zorder=11, visible=False, animated=True,
         )
         self._ch_ax = ax
-        self._ch_bg = self._canvas.copy_from_bbox(ax.bbox)
+        self._capture_bg()
 
         # ── 러버밴드 확대 셀렉터 (fig.clear()로 소멸하므로 렌더마다 재부착) ────
         try:
