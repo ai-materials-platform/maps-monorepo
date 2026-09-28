@@ -777,7 +777,13 @@ class StrainExploreDialog(QDialog):
             except Exception:
                 self._zoomed = False
                 self._zoom_limits = None
-        self._canvas_fig.tight_layout(pad=0.4)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            try:
+                self._canvas_fig.tight_layout(pad=0.4)
+            except Exception:
+                pass
         self._canvas.draw()
 
         # ── 크로스헤어 (blitting 유지) ────────────────────────────────────────
