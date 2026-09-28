@@ -57,7 +57,8 @@ def estimate_modulus(t_k):
     return 200000.0 * (1.0 - 0.0004 * max(t - 293.0, 0.0))
 
 
-def build_fn(mean_vec, input_dict, yield_mode="continuous", luders_strain=None):
+def build_fn(mean_vec, input_dict, yield_mode="continuous", luders_strain=None,
+               fracture_mode="auto"):
     from src.gui.mixins.charts_mixin import ChartsMixin
 
     class Stub:
@@ -75,7 +76,8 @@ def build_fn(mean_vec, input_dict, yield_mode="continuous", luders_strain=None):
 
     return ChartsMixin._build_stress_strain_profile(
         Stub(), mean_vec, input_dict,
-        yield_mode=yield_mode, luders_strain=luders_strain)
+        yield_mode=yield_mode, luders_strain=luders_strain,
+        fracture_mode=fracture_mode)
 
 
 print("creating QApplication...", flush=True)
@@ -121,7 +123,27 @@ try:
     # 구버전 호환: 기본 호출(연속)이 그대로 동작
     s0, t0, p0, m0, _g0 = ChartsMixin._build_stress_strain_profile(Stub(), mean, base)
     assert "UpperYield" not in p0 and m0["yield_mode"] == "continuous"
+    assert m0["fracture_mode"] == "ductile"  # mean 연신율 64.9% → 자동 연성
     print("CONTINUOUS-DEFAULT OK", flush=True)
+
+    # 연성/취성 분기
+    low_el = np.array([mean[0], mean[1], 4.0, mean[3]])  # 연신율 4% → 자동 취성
+    _s, t_b, _p, m_b, _g = ChartsMixin._build_stress_strain_profile(
+        Stub(), low_el, base, fracture_mode="auto")
+    assert m_b["fracture_mode"] == "brittle", m_b
+    _s, t_d, _p, m_d, _g = ChartsMixin._build_stress_strain_profile(
+        Stub(), low_el, base, fracture_mode="ductile")
+    assert m_d["fracture_mode"] == "ductile"
+    # 취성은 UTS 직후 급락: 앞쪽 1/3 구간의 하락량이 연성보다 클 것
+    uts_i = int(np.argmax(t_b))
+    tail_b = t_b[uts_i:]
+    tail_d = t_d[uts_i:]
+    n3_b = len(tail_b) // 3
+    drop_b = (tail_b[0] - tail_b[n3_b]) / max(tail_b[0] - tail_b[-1], 1e-9)
+    drop_d = (tail_d[0] - tail_d[n3_b]) / max(tail_d[0] - tail_d[-1], 1e-9)
+    assert drop_b > drop_d, (drop_b, drop_d)
+    assert np.all(np.diff(_s) > 0)
+    print(f"FRACTURE OK brittle_drop={drop_b:.2f} ductile_drop={drop_d:.2f}", flush=True)
 
     # 다이얼로그 콤보 전환 경로
     dlg._yield_combo.setCurrentIndex(1)

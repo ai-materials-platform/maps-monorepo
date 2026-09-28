@@ -211,6 +211,25 @@ class StrainExploreDialog(QDialog):
         yield_layout.addWidget(luders_note)
         layout.addWidget(yield_box)
 
+        # 파단 모드 (연성 / 취성)
+        frac_box = QGroupBox("파단 모드")
+        frac_layout = QVBoxLayout(frac_box)
+        frac_layout.setContentsMargins(10, 10, 10, 10)
+        frac_layout.setSpacing(6)
+
+        self._fracture_combo = QComboBox()
+        self._fracture_combo.addItem("자동 (연신율 기준)", "auto")
+        self._fracture_combo.addItem("연성 파단 (컵-콘)", "ductile")
+        self._fracture_combo.addItem("취성 파단 (벽개)", "brittle")
+        self._fracture_combo.currentIndexChanged.connect(lambda _i: self._update_timer.start())
+        frac_layout.addWidget(self._fracture_combo)
+
+        frac_note = QLabel("자동: 연신율 10% 미만이면 취성으로 판정")
+        frac_note.setWordWrap(True)
+        frac_note.setStyleSheet(f"font-size: 10px; color: {text_muted};")
+        frac_layout.addWidget(frac_note)
+        layout.addWidget(frac_box)
+
         # 범위 설정
         range_box = QGroupBox("값 범위")
         range_layout = QHBoxLayout(range_box)
@@ -377,6 +396,13 @@ class StrainExploreDialog(QDialog):
             return float(spin.value()) / 100.0
         except (TypeError, ValueError):
             return None
+
+    def _fracture_mode(self):
+        combo = getattr(self, "_fracture_combo", None)
+        if combo is None:
+            return "auto"
+        data = combo.currentData()
+        return data if data in ("auto", "ductile", "brittle") else "auto"
 
     def _on_column_changed(self):
         col = self._col_combo.currentData()
@@ -644,12 +670,18 @@ class StrainExploreDialog(QDialog):
             mean, modified,
             yield_mode=self._yield_mode(),
             luders_strain=self._luders_value(),
+            fracture_mode=self._fracture_mode(),
         )
         if isinstance(meta, dict) and meta.get("upper_yield_stress"):
             self._result_label.setText(
                 self._result_label.text()
                 + f"<br>상항복점: <b>{meta['upper_yield_stress']:.1f} MPa</b>"
                   f" (Lüders {meta.get('luders_strain', 0.0) * 100.0:.1f} %)"
+            )
+        if isinstance(meta, dict) and meta.get("fracture_mode") == "brittle":
+            self._result_label.setText(
+                self._result_label.text()
+                + "<br>파단 모드: <b>취성 (벽개형)</b>"
             )
         col_label = _COLUMN_LABELS.get(col, col)
         self._render(strain, stress, points, segments, col_label, val)

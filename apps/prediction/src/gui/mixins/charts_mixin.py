@@ -433,7 +433,8 @@ class ChartsMixin:
         return float(np.clip(193000.0 * softening_factor, 125000.0, 210000.0))
 
     def _build_stress_strain_profile(self, mean, input_dict,
-                                       yield_mode="continuous", luders_strain=None):
+                                       yield_mode="continuous", luders_strain=None,
+                                       fracture_mode="auto"):
         from scipy.interpolate import PchipInterpolator
 
         yield_stress = max(self._safe_float(mean[0]), 1.0)
@@ -482,6 +483,15 @@ class ChartsMixin:
             fracture_strain = uts_strain + 0.003
 
         fracture_stress_ratio = float(np.clip(0.80 - 0.42 * (area_reduction_pct / 100.0), 0.30, 0.80))
+        # ── 연성 / 취성 파단 분기 ─────────────────────────────────────────────
+        # 연성(컵-콘): 네킹이 길고 응력이 서서히 하락. 취성(벽개): UTS 직후 급락.
+        # auto 모드에서는 예측 연신율로 판정한다 (연신율 10% 기준).
+        fmode = str(fracture_mode or "auto").lower()
+        if fmode == "auto":
+            fmode = "brittle" if elongation_pct < 10.0 else "ductile"
+        brittle = (fmode == "brittle")
+        if brittle:
+            fracture_stress_ratio = min(fracture_stress_ratio, 0.20)
         fracture_stress = uts * fracture_stress_ratio
 
         # ── Region A: Elastic — strictly linear ─────────────────────────────
@@ -520,9 +530,14 @@ class ChartsMixin:
         hardening_y = np.clip(pchip_h(hardening_x), yield_stress, uts)
 
         # ── Region C: Necking — PCHIP, accelerating drop (per spec) ──────────
-        # minimal drop immediately after UTS, increasing rate toward fracture
-        n_t     = np.array([0.0, 0.12, 0.32, 0.58, 0.82, 1.0])
-        n_shape = np.array([0.0, 0.015, 0.105, 0.34, 0.68, 1.0])
+        # minimal drop immediately after UTS, increasing rate toward fracture.
+        # 취성 모드에서는 UTS 직후 급락 (벽개형) — 하락분의 90% 이상을 앞쪽 1/3에 몰아넣는다.
+        if brittle:
+            n_t     = np.array([0.0, 0.08, 0.20, 0.34, 0.60, 1.0])
+            n_shape = np.array([0.0, 0.55, 0.80, 0.92, 0.98, 1.0])
+        else:
+            n_t     = np.array([0.0, 0.12, 0.32, 0.58, 0.82, 1.0])
+            n_shape = np.array([0.0, 0.015, 0.105, 0.34, 0.68, 1.0])
         n_x = uts_strain + n_t * (fracture_strain - uts_strain)
         n_y = uts - (uts - fracture_stress) * n_shape
         pchip_n = PchipInterpolator(n_x, n_y)
@@ -556,6 +571,7 @@ class ChartsMixin:
             "yield_mode":          "discontinuous" if discontinuous else "continuous",
             "upper_yield_stress":  upper_yield_stress,
             "luders_strain":       luders,
+            "fracture_mode":       "brittle" if brittle else "ductile",
         }
         return strain, stress, points, meta, segments
 
