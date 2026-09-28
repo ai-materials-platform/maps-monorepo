@@ -171,6 +171,41 @@ class StrainExploreDialog(QDialog):
         col_layout.addWidget(self._col_combo)
         layout.addWidget(col_box)
 
+        # 항복 모드 (연속항복 / 불연속항복)
+        yield_box = QGroupBox("항복 모드")
+        yield_layout = QVBoxLayout(yield_box)
+        yield_layout.setContentsMargins(10, 10, 10, 10)
+        yield_layout.setSpacing(6)
+
+        self._yield_combo = QComboBox()
+        self._yield_combo.addItem("연속항복", "continuous")
+        self._yield_combo.addItem("불연속항복 (상·하항복점)", "discontinuous")
+        self._yield_combo.currentIndexChanged.connect(self._on_yield_mode_changed)
+        yield_layout.addWidget(self._yield_combo)
+
+        luders_row = QHBoxLayout()
+        luders_row.setSpacing(6)
+        luders_lbl = QLabel("Lüders 변형률")
+        luders_lbl.setStyleSheet(f"font-size: 11px; color: {text_sec};")
+        luders_row.addWidget(luders_lbl)
+        self._luders_spin = QDoubleSpinBox()
+        self._luders_spin.setDecimals(1)
+        self._luders_spin.setRange(0.2, 8.0)
+        self._luders_spin.setSingleStep(0.5)
+        self._luders_spin.setValue(2.0)
+        self._luders_spin.setSuffix(" %")
+        self._luders_spin.setFixedHeight(30)
+        self._luders_spin.setEnabled(False)
+        self._luders_spin.valueChanged.connect(lambda _v: self._update_timer.start())
+        luders_row.addWidget(self._luders_spin, 1)
+        yield_layout.addLayout(luders_row)
+
+        luders_note = QLabel("저탄소강 등의 항복점 현상 (상항복점→하항복점→평탄부)")
+        luders_note.setWordWrap(True)
+        luders_note.setStyleSheet(f"font-size: 10px; color: {text_muted};")
+        yield_layout.addWidget(luders_note)
+        layout.addWidget(yield_box)
+
         # 범위 설정
         range_box = QGroupBox("값 범위")
         range_layout = QHBoxLayout(range_box)
@@ -270,6 +305,27 @@ class StrainExploreDialog(QDialog):
         return panel
 
     # ── 이벤트 핸들러 ────────────────────────────────────────────────────────
+
+    def _on_yield_mode_changed(self):
+        is_discontinuous = self._yield_mode() == "discontinuous"
+        self._luders_spin.setEnabled(is_discontinuous)
+        self._update_timer.start()
+
+    def _yield_mode(self):
+        combo = getattr(self, "_yield_combo", None)
+        if combo is None:
+            return "continuous"
+        data = combo.currentData()
+        return data if data in ("continuous", "discontinuous") else "continuous"
+
+    def _luders_value(self):
+        spin = getattr(self, "_luders_spin", None)
+        if spin is None:
+            return None
+        try:
+            return float(spin.value()) / 100.0
+        except (TypeError, ValueError):
+            return None
 
     def _on_column_changed(self):
         col = self._col_combo.currentData()
@@ -498,7 +554,17 @@ class StrainExploreDialog(QDialog):
             f"{temp_note}"
         )
 
-        strain, stress, points, meta, segments = self._build_fn(mean, modified)
+        strain, stress, points, meta, segments = self._build_fn(
+            mean, modified,
+            yield_mode=self._yield_mode(),
+            luders_strain=self._luders_value(),
+        )
+        if isinstance(meta, dict) and meta.get("upper_yield_stress"):
+            self._result_label.setText(
+                self._result_label.text()
+                + f"<br>상항복점: <b>{meta['upper_yield_stress']:.1f} MPa</b>"
+                  f" (Lüders {meta.get('luders_strain', 0.0) * 100.0:.1f} %)"
+            )
         col_label = _COLUMN_LABELS.get(col, col)
         self._render(strain, stress, points, segments, col_label, val)
 
@@ -527,9 +593,10 @@ class StrainExploreDialog(QDialog):
             "necking":   "#9B1C1C" if d else "#7F1D1D",
         }
         pt_colors = {
-            "Yield":    seg_colors["elastic"],
-            "UTS":      seg_colors["necking"],
-            "Fracture": "#1A7A4A" if d else "#14532D",
+            "Yield":      seg_colors["elastic"],
+            "UpperYield": "#A21CAF" if d else "#86198F",
+            "UTS":        seg_colors["necking"],
+            "Fracture":   "#1A7A4A" if d else "#14532D",
         }
 
         self._canvas_fig.clear()
@@ -592,7 +659,7 @@ class StrainExploreDialog(QDialog):
                     bbox=dict(boxstyle="square,pad=0.15", fc=ann_bg, ec="none", alpha=0.70))
 
         # ── 주요 점 마커 + annotation ─────────────────────────────────────────
-        offsets = {"Yield": (10, 40), "UTS": (-72, -38), "Fracture": (-84, -8)}
+        offsets = {"Yield": (10, 40), "UpperYield": (10, -32), "UTS": (-72, -38), "Fracture": (-84, -8)}
         for name, (xv, yv) in points.items():
             c = pt_colors[name]
             ax.scatter([xv], [yv], s=30, color=c, zorder=5, linewidths=0)

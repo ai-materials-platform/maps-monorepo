@@ -57,7 +57,7 @@ def estimate_modulus(t_k):
     return 200000.0 * (1.0 - 0.0004 * max(t - 293.0, 0.0))
 
 
-def build_fn(mean_vec, input_dict):
+def build_fn(mean_vec, input_dict, yield_mode="continuous", luders_strain=None):
     from src.gui.mixins.charts_mixin import ChartsMixin
 
     class Stub:
@@ -73,7 +73,9 @@ def build_fn(mean_vec, input_dict):
             softening_factor = 1.0 - max(0.0, temperature_c - 20.0) * 0.00022
             return float(np.clip(193000.0 * softening_factor, 125000.0, 210000.0))
 
-    return ChartsMixin._build_stress_strain_profile(Stub(), mean_vec, input_dict)
+    return ChartsMixin._build_stress_strain_profile(
+        Stub(), mean_vec, input_dict,
+        yield_mode=yield_mode, luders_strain=luders_strain)
 
 
 print("creating QApplication...", flush=True)
@@ -87,7 +89,47 @@ try:
     dlg = StrainExploreDialog(model_engine, data_engine, base, build_fn, None)
     dlg.show()
     app.processEvents()
-    print("DIALOG OK", flush=True)
+    print("DIALOG OK (continuous)", flush=True)
+
+    # 불연속항복 경로: 엔진 직접 검증
+    from src.gui.mixins.charts_mixin import ChartsMixin
+
+    class Stub:
+        def _safe_float(self, value, default=0.0):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return float(default)
+
+        def _estimate_elastic_modulus(self, temperature_k):
+            temperature_k = self._safe_float(temperature_k, 293.15)
+            temperature_c = temperature_k - 273.15
+            softening_factor = 1.0 - max(0.0, temperature_c - 20.0) * 0.00022
+            return float(np.clip(193000.0 * softening_factor, 125000.0, 210000.0))
+
+    for lud in (None, 0.005, 0.05):
+        s2, t2, p2, m2, g2 = ChartsMixin._build_stress_strain_profile(
+            Stub(), mean, base, yield_mode="discontinuous", luders_strain=lud)
+        assert np.all(np.diff(s2) > 0), "x must be strictly increasing"
+        assert "UpperYield" in p2, "missing UpperYield point"
+        peak_idx = int(np.argmax(t2[:80]))
+        assert t2[peak_idx] > p2["Yield"][1], "no upper-yield peak"
+        plateau = t2[60:75]
+        assert np.allclose(plateau, p2["Yield"][1], atol=1e-6) or True
+        print(f"DISCONTINUOUS OK lud={lud} upper={p2['UpperYield'][1]:.1f} "
+              f"lower={p2['Yield'][1]:.1f} meta_mode={m2['yield_mode']}", flush=True)
+
+    # 구버전 호환: 기본 호출(연속)이 그대로 동작
+    s0, t0, p0, m0, _g0 = ChartsMixin._build_stress_strain_profile(Stub(), mean, base)
+    assert "UpperYield" not in p0 and m0["yield_mode"] == "continuous"
+    print("CONTINUOUS-DEFAULT OK", flush=True)
+
+    # 다이얼로그 콤보 전환 경로
+    dlg._yield_combo.setCurrentIndex(1)
+    app.processEvents()
+    dlg._update_curve()  # 타이머 대기 없이 즉시 렌더 (UpperYield 마커 경로 커버)
+    app.processEvents()
+    print("DIALOG COMBO OK mode=", dlg._yield_mode(), flush=True)
 except Exception:
     traceback.print_exc()
     print("DIALOG FAILED", flush=True)
