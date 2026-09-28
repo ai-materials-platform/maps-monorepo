@@ -84,6 +84,10 @@ class StrainExploreDialog(QDialog):
         self._ch_text = None
         self._ch_ax = None
         self._ch_bg = None
+        self._zoomed = False
+        self._zoom_limits = None
+        self._full_limits = None
+        self._zoom_selector = None
 
         self._update_timer = QTimer(self)
         self._update_timer.setSingleShot(True)
@@ -301,8 +305,60 @@ class StrainExploreDialog(QDialog):
         self._canvas = FigureCanvas(self._canvas_fig)
         self._canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._canvas.mpl_connect("motion_notify_event", self._on_mouse_move)
+        self._canvas.mpl_connect("button_press_event", self._on_canvas_click)
+        zoom_hint = QLabel("드래그: 영역 확대 · 더블클릭: 원복")
+        zoom_hint.setStyleSheet("font-size: 10px; color: #94A3B8;")
+        zoom_hint.setAlignment(Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self._canvas)
+        layout.addWidget(zoom_hint)
         return panel
+
+    def _on_canvas_click(self, event):
+        # 더블클릭 → 전체 보기로 원복
+        if not (event.dblclick and event.inaxes is not None):
+            return
+        full = getattr(self, "_full_limits", None)
+        ax = getattr(self, "_ch_ax", None)
+        if ax is None or full is None:
+            return
+        try:
+            ax.set_xlim(full[0])
+            ax.set_ylim(full[1])
+        except Exception:
+            return
+        self._zoomed = False
+        self._zoom_limits = None
+        self._canvas.draw()
+        try:
+            self._ch_bg = self._canvas.copy_from_bbox(ax.bbox)
+        except Exception:
+            self._ch_bg = None
+
+    def _on_zoom_select(self, eclick, erelease):
+        # 러버밴드 드래그 → 해당 영역으로 확대
+        if eclick.xdata is None or erelease.xdata is None:
+            return
+        if eclick.ydata is None or erelease.ydata is None:
+            return
+        x0, x1 = sorted([eclick.xdata, erelease.xdata])
+        y0, y1 = sorted([eclick.ydata, erelease.ydata])
+        if not (x1 > x0 and y1 > y0):
+            return
+        ax = getattr(self, "_ch_ax", None)
+        if ax is None:
+            return
+        try:
+            ax.set_xlim(x0, x1)
+            ax.set_ylim(y0, y1)
+        except Exception:
+            return
+        self._zoomed = True
+        self._zoom_limits = ((x0, x1), (y0, y1))
+        self._canvas.draw()
+        try:
+            self._ch_bg = self._canvas.copy_from_bbox(ax.bbox)
+        except Exception:
+            self._ch_bg = None
 
     # ── 이벤트 핸들러 ────────────────────────────────────────────────────────
 
@@ -682,6 +738,15 @@ class StrainExploreDialog(QDialog):
 
         ax.set_xlim(0.0, frac_x * 1.08)
         ax.set_ylim(0.0, uts_y * 1.20)
+        self._full_limits = (ax.get_xlim(), ax.get_ylim())
+        if getattr(self, "_zoomed", False) and getattr(self, "_zoom_limits", None):
+            # 슬라이더 등으로 재렌더해도 확대 상태 유지
+            try:
+                ax.set_xlim(self._zoom_limits[0])
+                ax.set_ylim(self._zoom_limits[1])
+            except Exception:
+                self._zoomed = False
+                self._zoom_limits = None
         self._canvas_fig.tight_layout(pad=0.4)
         self._canvas.draw()
 
@@ -695,3 +760,25 @@ class StrainExploreDialog(QDialog):
         )
         self._ch_ax = ax
         self._ch_bg = self._canvas.copy_from_bbox(ax.bbox)
+
+        # ── 러버밴드 확대 셀렉터 (fig.clear()로 소멸하므로 렌더마다 재부착) ────
+        try:
+            old_selector = getattr(self, "_zoom_selector", None)
+            if old_selector is not None:
+                try:
+                    old_selector.disconnect_events()
+                except Exception:
+                    pass
+            from matplotlib.widgets import RectangleSelector
+            self._zoom_selector = RectangleSelector(
+                ax,
+                self._on_zoom_select,
+                useblit=False,
+                button=[1],
+                minspanx=5,
+                minspany=5,
+                spancoords="pixels",
+                interactive=False,
+            )
+        except Exception:
+            self._zoom_selector = None

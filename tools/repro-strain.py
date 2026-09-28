@@ -129,6 +129,34 @@ try:
     dlg._update_curve()  # 타이머 대기 없이 즉시 렌더 (UpperYield 마커 경로 커버)
     app.processEvents()
     print("DIALOG COMBO OK mode=", dlg._yield_mode(), flush=True)
+
+    # 러버밴드 확대/원복 경로
+    class FakeEv:
+        def __init__(self, x, y):
+            self.xdata = x
+            self.ydata = y
+
+    dlg._on_zoom_select(FakeEv(0.02, 200.0), FakeEv(0.06, 300.0))
+    assert dlg._zoomed is True
+    xl = dlg._ch_ax.get_xlim()
+    assert abs(xl[0] - 0.02) < 1e-9 and abs(xl[1] - 0.06) < 1e-9, xl
+    print("ZOOM-IN OK xlim=", xl, flush=True)
+
+    class FakeClick:
+        dblclick = True
+        inaxes = dlg._ch_ax
+
+    dlg._on_canvas_click(FakeClick())
+    assert dlg._zoomed is False
+    xl2 = dlg._ch_ax.get_xlim()
+    assert xl2 == dlg._full_limits[0], (xl2, dlg._full_limits)
+    print("ZOOM-RESET OK xlim=", xl2, flush=True)
+
+    # 확대 상태 유지 렌더 (슬라이더 이동 시 줌 풀림 방지)
+    dlg._on_zoom_select(FakeEv(0.02, 200.0), FakeEv(0.06, 300.0))
+    dlg._update_curve()
+    assert dlg._ch_ax.get_xlim()[1] <= 0.0600001
+    print("ZOOM-PERSIST OK", flush=True)
 except Exception:
     traceback.print_exc()
     print("DIALOG FAILED", flush=True)
