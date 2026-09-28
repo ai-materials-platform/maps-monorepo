@@ -48,6 +48,9 @@ apps/simulation/logs/
 # ---- Local workspace saves ----
 apps/workspaces/
 
+# ---- Reference datasets (third-party, see reference-data/SOURCES.md) ----
+reference-data/
+
 # ---- OS ----
 .DS_Store
 Thumbs.db
