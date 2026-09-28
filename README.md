@@ -38,7 +38,7 @@ npm run check
 
 ## 서비스 포트
 
-| 서비스 | 포트 | 소스 |c
+| 서비스 | 포트 | 소스 |
 |---|---|---|
 | Prediction Flask API | 5000 | `apps/prediction/src/api/server.py` |
 | Simulation backend | 8765 | `apps/simulation/backend/simulation_server.py` |
