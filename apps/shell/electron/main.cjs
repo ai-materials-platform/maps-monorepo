@@ -8,6 +8,7 @@ const net = require('net');
 const path = require('path');
 
 const rootDir = path.resolve(__dirname, '..');
+const monorepoRootDir = path.resolve(rootDir, '..', '..');
 
 // Load .env (simple parser, honours existing env vars)
 // Checks exe directory first (packaged), then rootDir (dev)
@@ -109,6 +110,7 @@ function runtimePath(extra = []) {
   return [
     path.join(simulationRepoDir, 'node_modules', '.bin'),
     path.join(rootDir, 'node_modules', '.bin'),
+    path.join(monorepoRootDir, 'node_modules', '.bin'),
     bundledRuntimeDir('node', 'bin'),
     bundledRuntimeDir('bin'),
     ...extra,
@@ -118,7 +120,12 @@ function runtimePath(extra = []) {
 
 function resolveSimulationBin(name) {
   const suffix = process.platform === 'win32' ? '.cmd' : '';
-  return path.join(simulationRepoDir, 'node_modules', '.bin', `${name}${suffix}`);
+  const candidates = [
+    path.join(simulationRepoDir, 'node_modules', '.bin', `${name}${suffix}`),
+    path.join(rootDir, 'node_modules', '.bin', `${name}${suffix}`),
+    path.join(monorepoRootDir, 'node_modules', '.bin', `${name}${suffix}`)
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
 }
 
 function isTcpPortOccupied(port) {
