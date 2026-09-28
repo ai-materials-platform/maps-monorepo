@@ -206,9 +206,8 @@ class UISetupMixin:
         self._floating_chatbot.show()
         QTimer.singleShot(0, self._reposition_floating_chatbot)
         # 이벤트 누락 대비 폴링 백업: 포커스가 앱을 벗어나면 아이콘 숨김
-        self._focus_none_streak = 0
         self._floating_focus_timer = QTimer(self)
-        self._floating_focus_timer.setInterval(400)
+        self._floating_focus_timer.setInterval(200)
         self._floating_focus_timer.timeout.connect(self._refresh_floating_for_focus)
         self._floating_focus_timer.start()
 
@@ -1263,8 +1262,8 @@ class UISetupMixin:
     def _refresh_floating_for_focus(self):
         """활성 윈도우 기준 플로팅 아이콘 표시 갱신 (이벤트+폴링 공용).
 
-        포커스가 앱을 완전히 벗어난 상태(None)가 2회 연속 확인될 때만 숨긴다.
-        클릭 순간의 과도기 None을 오인하지 않기 위한 디바운스.
+        포커스가 앱을 완전히 벗어나면 즉시 숨긴다. 단, 커서가 아이콘 위에
+        있으면 아이콘 클릭 중으로 보고 건너뛴다 (클릭 무효화 방지).
         """
         from PyQt6.QtWidgets import QApplication
 
@@ -1272,16 +1271,15 @@ class UISetupMixin:
             return
         minimized = bool(self.windowState() & Qt.WindowState.WindowMinimized)
         if minimized or self.isHidden():
-            self._focus_none_streak = 0
             if self._floating_chatbot.isVisible():
                 self._remember_and_hide_floating()
             return
         if QApplication.activeWindow() is None:
-            self._focus_none_streak = getattr(self, "_focus_none_streak", 0) + 1
-            if self._focus_none_streak >= 2 and self._floating_chatbot.isVisible():
+            if self._floating_chatbot.underMouse():
+                return
+            if self._floating_chatbot.isVisible():
                 self._remember_and_hide_floating()
         else:
-            self._focus_none_streak = 0
             if not self._floating_chatbot.isVisible():
                 self._floating_chatbot.show()
                 if getattr(self, "_llm_dialog_was_visible", False):
