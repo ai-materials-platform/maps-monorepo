@@ -24,7 +24,7 @@ _SLIDER_STEPS = 1000
 _trapezoid = getattr(np, "trapezoid", getattr(np, "trapz", None))
 
 _COLUMN_RANGES = {
-    "C":  (0.01, 0.30),
+    "C":  (0.01, 2.00),
     "Si": (0.10, 3.00),
     "Mn": (0.50, 5.00),
     "P":  (0.001, 0.05),
@@ -657,6 +657,19 @@ class StrainExploreDialog(QDialog):
             except Exception:
                 return
 
+        # 메인 화면과 동일한 고C 보정을 적용한다 (우회 예측 방지)
+        from src.engine.high_carbon_correction import (
+            apply_high_carbon_correction,
+            correction_badge,
+        )
+        mean, _corr = apply_high_carbon_correction(
+            np.asarray(mean, dtype=float), modified)
+        corr_note = ""
+        if _corr.get("applied") or _corr.get("refused"):
+            badge = correction_badge(_corr)
+            if badge:
+                corr_note = f"<br><span style='font-size:10px;'>⚠ {badge}</span>"
+
         self._result_label.setText(
             f"<b>예측 물성</b><br>"
             f"항복강도: <b>{mean[0]:.1f} MPa</b><br>"
@@ -664,6 +677,7 @@ class StrainExploreDialog(QDialog):
             f"연신율: <b>{mean[2]:.1f} %</b><br>"
             f"단면감소율: <b>{mean[3]:.1f} %</b>"
             f"{temp_note}"
+            f"{corr_note}"
         )
 
         strain, stress, points, meta, segments = self._build_fn(

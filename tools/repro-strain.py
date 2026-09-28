@@ -192,6 +192,22 @@ try:
     dlg._on_mouse_move(FakeMotion())
     assert dlg._ch_bg_key is not None and dlg._ch_bg_key != old_key, (old_key, dlg._ch_bg_key)
     print("BG-REFRESH OK key=", dlg._ch_bg_key[0], flush=True)
+
+    # 탐색기 내 고C 보정 경로 (메인 화면과 동일 값 나와야 함)
+    dlg._base_input["C"] = "1.5"
+    c_idx = dlg._col_combo.findData("C")
+    assert c_idx >= 0
+    dlg._col_combo.setCurrentIndex(c_idx)
+    app.processEvents()
+    frac = (1.5 - 0.01) / (2.0 - 0.01)
+    dlg._slider.setValue(int(frac * 1000))
+    dlg._update_curve()
+    label = dlg._result_label.text()
+    assert "고C" in label, label[-120:]
+    import re as _re
+    m_el = _re.search(r"연신율: <b>([\d.]+)", label)
+    assert m_el and float(m_el.group(1)) < 10.0, label[-120:]
+    print("EXPLORER-CORRECTION OK El=", m_el.group(1), flush=True)
 except Exception:
     traceback.print_exc()
     print("DIALOG FAILED", flush=True)
