@@ -562,6 +562,11 @@ function App() {
     generateStressStrainCurve(prediction, 14),
     [prediction.strengthMpa, prediction.yieldStressMpa, prediction.elasticityGpa, prediction.elongationPercent]
   );
+  // 상·결정구조 + Schaeffler 판정 (physics.js predictPhases 확장)
+  const phaseInfo = useMemo(() =>
+    predictPhases(composition ?? {}),
+    [composition]
+  );
   // 기존 컴포넌트 호환: 정규화 0-100 값 배열
   const stressStrainPoints = useMemo(() =>
     stressStrainCurveData.map(p => p.normStress),
@@ -1464,6 +1469,50 @@ function App() {
             <Metric label="연신율" value={`${prediction.elongationPercent != null ? prediction.elongationPercent : "-"} %`} />
             <Metric label="단면 수축률" value={`${prediction.areaReductionPercent != null ? prediction.areaReductionPercent : "-"} %`} />
           </div>
+
+          <section className="analytics-card">
+            <SectionTitle icon={Layers3} title="상 · 결정구조 (Schaeffler)" />
+            <div style={{ fontSize: 11, fontFamily: "var(--mono)", lineHeight: 1.7 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "var(--text-muted)" }}>Ni 당량</span>
+                <strong>{phaseInfo.Ni_eq ?? phaseInfo.NiEq}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "var(--text-muted)" }}>Cr 당량</span>
+                <strong>{phaseInfo.Cr_eq ?? phaseInfo.CrEq}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "var(--text-muted)" }}>WRC-1992</span>
+                <strong>Cr {phaseInfo.WRC_Cr_eq} / Ni {phaseInfo.WRC_Ni_eq}</strong>
+              </div>
+              <div style={{
+                marginTop: 6, padding: "6px 8px", borderRadius: 4,
+                background: "#EEF6FF", border: "1px solid #BFDBFE",
+                fontSize: 11, lineHeight: 1.5
+              }}>
+                <strong>{phaseInfo.schaeffler?.zone} · {phaseInfo.schaeffler?.zoneKo}</strong>
+                <div style={{ color: "#475569", fontSize: 10, marginTop: 2 }}>
+                  {phaseInfo.schaeffler?.description}
+                </div>
+                <div style={{ color: "#475569", fontSize: 10, marginTop: 2 }}>
+                  주상: {phaseInfo.schaeffler?.dominantPhase} ({phaseInfo.schaeffler?.dominantCrystal})
+                </div>
+              </div>
+              <div style={{ display: "flex", height: 10, borderRadius: 3, overflow: "hidden", margin: "8px 0 4px" }}>
+                <div style={{ width: `${phaseInfo.austenite}%`, background: "#1a5fa8" }} title={`오스테나이트 γ-FCC: ${phaseInfo.austenite}%`} />
+                <div style={{ width: `${phaseInfo.ferrite}%`, background: "#217a3c" }} title={`페라이트 α-BCC: ${phaseInfo.ferrite}%`} />
+                <div style={{ width: `${phaseInfo.martensite}%`, background: "#c0392b" }} title={`마르텐사이트 α'-BCT: ${phaseInfo.martensite}%`} />
+              </div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                γ-FCC {phaseInfo.austenite}% · α-BCC {phaseInfo.ferrite}% · α'-BCT {phaseInfo.martensite}%
+              </div>
+              {phaseInfo.schaeffler?.lowAlloy && (
+                <div style={{ fontSize: 10, color: "#b45309", marginTop: 4 }}>
+                  저합금 조성이라 Schaeffler 판정은 참고용입니다.
+                </div>
+              )}
+            </div>
+          </section>
 
           {compareMode && alloys.length > 1 && (
             <section className="analytics-card">

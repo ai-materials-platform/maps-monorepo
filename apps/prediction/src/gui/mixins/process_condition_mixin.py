@@ -26,6 +26,7 @@ from src.engine.process_condition_engine import (
     TARGET_DISPLAY,
     ProcessConditionEngine,
 )
+from src.engine.phase_engine import predict_from_equivalents
 from src.gui.widgets import MplCanvas
 
 
@@ -554,6 +555,21 @@ class ProcessConditionPanel(QWidget):
         lines.append("<br><b>연성</b><br>")
         for lbl, val in zip(labels[2:], values[2:]):
             lines.append(f"&nbsp;&nbsp;{lbl}: <b>{val:.2f}</b><br>")
+        try:
+            ph = predict_from_equivalents(
+                input_dict.get('Ni_eq', 0), input_dict.get('Cr_eq', 0)
+            )
+            sch = ph.get('schaeffler', {})
+            lines.append(
+                f"<br><b>상·결정구조 (Schaeffler {sch.get('zone', '-')})</b><br>"
+                f"&nbsp;&nbsp;{sch.get('zoneKo', '')} — {sch.get('description', '')}<br>"
+                f"&nbsp;&nbsp;γ-FCC {ph.get('austenite', 0)}% · "
+                f"α-BCC {ph.get('ferrite', 0)}% · "
+                f"α'-BCT {ph.get('martensite', 0)}% "
+                f"(주상: {sch.get('dominantPhase', '-')} {sch.get('dominantCrystal', '')})<br>"
+            )
+        except Exception:
+            pass
         lines.append(
             f"<br><span style='color:#64748B; font-size:11px;'>"
             f"입력 — 온도: {input_dict.get('solution_treatment_temp', 0):.0f} K, "
