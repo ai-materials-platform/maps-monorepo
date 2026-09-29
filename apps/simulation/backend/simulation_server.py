@@ -77,6 +77,67 @@ def weighted(composition, key):
     return sum(ELEMENT_PROFILES[element][key] * ratio for element, ratio in composition.items())
 
 
+def compute_phase_info(raw_composition):
+    """Schaeffler 기반 상·결정구조 판정 (frontend physics.js와 동일식).
+
+    raw_composition: 원소->wt% (합계 100 기준). 프론트와 동일하게
+    wt%를 그대로 당량식에 투입한다 (정규분율 아님에 주의).
+    """
+    g = lambda k: max(float(raw_composition.get(k, 0) or 0), 0.0)
+    ni_eq = g("Ni") + g("Co") + 30 * (g("C") + g("N")) + 0.5 * g("Mn") + 0.25 * g("Cu")
+    cr_eq = g("Cr") + g("Mo") + 1.5 * g("Si") + 0.5 * g("Nb") + 2.0 * g("Ti") + 1.5 * g("Al")
+    total_eq = ni_eq + cr_eq
+    ratio = cr_eq / total_eq if total_eq > 0 else 0.5
+    if ratio < 0.45:
+        austenite = min(98, 70 + ni_eq * 0.60)
+        ferrite = max(0, 100 - austenite - 2)
+        martensite = 2
+    elif ratio < 0.68:
+        t = (ratio - 0.45) / 0.23
+        ferrite = min(20, t * 20)
+        austenite = max(75, 95 - ferrite)
+        martensite = min(5, t * 5)
+    else:
+        t = min(1, (ratio - 0.68) / 0.20)
+        ferrite = min(80, 45 + t * 35)
+        martensite = min(40, t * 40)
+        austenite = max(0, 100 - ferrite - martensite)
+    s = austenite + ferrite + martensite
+    k = 100 / s if s > 0 else 1
+    fracs = {
+        "austenite": round(austenite * k),
+        "ferrite": round(ferrite * k),
+        "martensite": round(martensite * k),
+        "bainite": 0,
+    }
+    a, f, m = fracs["austenite"], fracs["ferrite"], fracs["martensite"]
+    if a >= 90:
+        zone, zone_ko = "A", "완전 오스테나이트"
+    elif a >= 60:
+        zone, zone_ko = "A+F", "오스테나이트 + 페라이트"
+    elif f >= 45 and m >= 15:
+        zone, zone_ko = "F+M", "페라이트 + 마르텐사이트"
+    elif f >= 45:
+        zone, zone_ko = "F+A", "페라이트 + 오스테나이트"
+    elif m >= 20:
+        zone, zone_ko = "M", "마르텐사이트 우세"
+    else:
+        zone, zone_ko = "MIX", "혼합 조직"
+    dom = max([("austenite", a), ("ferrite", f), ("martensite", m)], key=lambda x: x[1])[0]
+    crystal = {"austenite": "FCC", "ferrite": "BCC", "martensite": "BCT"}[dom]
+    return {
+        **fracs,
+        "Ni_eq": round(ni_eq, 1), "Cr_eq": round(cr_eq, 1),
+        "NiEq": round(ni_eq, 1), "CrEq": round(cr_eq, 1),
+        # WRC-1992 표준 축 (Kotecki & Siewert 1992). FN은 도표 판독값이라 위치값까지만 제공.
+        "WRC_Ni_eq": round(g("Ni") + 35 * g("C") + 20 * g("N") + 0.25 * g("Cu"), 2),
+        "WRC_Cr_eq": round(g("Cr") + g("Mo") + 0.7 * g("Nb"), 2),
+        "crystal": {"austenite": "FCC", "ferrite": "BCC", "martensite": "BCT", "bainite": "BCT"},
+        "schaeffler": {"zone": zone, "zoneKo": zone_ko, "dominantPhase": dom,
+                        "dominantCrystal": crystal, "lowAlloy": bool(ni_eq < 2 and cr_eq < 5)},
+    }
+
+
 def find_platform_project_dir():
     here = os.path.dirname(os.path.abspath(__file__))  # apps/simulation/backend
     candidates = [
@@ -313,6 +374,7 @@ def predict_properties(raw_composition, density_scale, use_platform=True, proces
         "meltingPoint": round(melting_point, 1),
         "predictionConfidence": round(prediction_confidence, 1),
         "latticeStability": round(78 + strength_base * 10 + mixing_entropy * 4, 1),
+        "phases": compute_phase_info(raw_composition),
     }
 
 

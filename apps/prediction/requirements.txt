@@ -15,3 +15,4 @@ xgboost
 lightgbm
 catboost
 requests
+pycalphad  # 상분율 정밀 계산(CALPHAD)용. 없으면 경험식으로 폴백

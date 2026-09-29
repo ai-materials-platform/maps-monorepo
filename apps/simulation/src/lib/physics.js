@@ -82,6 +82,66 @@ export function estimateGrainDiameterMm(sigmaY, ky = 0.60) {
   return Math.min(2.0, Math.pow(ky / diff, 2)); // mm
 }
 
+// Phase → crystal structure metadata (γ=FCC, α=BCC, α'=BCT)
+export const PHASE_CRYSTAL = {
+  austenite:  { symbol: "γ",  name: "오스테나이트", structure: "FCC" },
+  ferrite:    { symbol: "α",  name: "페라이트",     structure: "BCC" },
+  martensite: { symbol: "α'", name: "마르텐사이트", structure: "BCT" },
+  bainite:    { symbol: "B",  name: "베이나이트",   structure: "BCT" },
+};
+
+// Schaeffler-zone classification from Ni/Cr equivalents + phase fractions.
+// Returns { zone, zoneKo, description, dominantPhase, dominantCrystal }.
+// Note: Schaeffler diagram is empirical (weld/as-cast stainless). For wrought +
+// heat-treated material treat as guidance, not quantitative phase assay.
+export function classifySchaeffler(NiEq, CrEq, phases) {
+  const ni = Number(NiEq) || 0;
+  const cr = Number(CrEq) || 0;
+  const austenite = phases?.austenite ?? 0;
+  const ferrite = phases?.ferrite ?? 0;
+  const martensite = phases?.martensite ?? 0;
+
+  const entries = [
+    ["austenite", austenite],
+    ["ferrite", ferrite],
+    ["martensite", martensite],
+  ].sort((x, y) => y[1] - x[1]);
+  const dominantPhase = entries[0][0];
+  const dominantCrystal = PHASE_CRYSTAL[dominantPhase]?.structure ?? "-";
+
+  let zone = "MIX";
+  let zoneKo = "혼합 조직";
+  let description = "오스테나이트·페라이트·마르텐사이트 혼합 영역";
+
+  if (austenite >= 90) {
+    zone = "A";
+    zoneKo = "완전 오스테나이트";
+    description = "γ-FCC 단상 영역. 연성·인성이 높고 가공경화 경향";
+  } else if (austenite >= 60) {
+    zone = "A+F";
+    zoneKo = "오스테나이트 + 페라이트";
+    description = "γ-FCC 기지에 α-BCC 소량. 강도↑·내응력부식 균형 영역";
+  } else if (ferrite >= 45 && martensite >= 15) {
+    zone = "F+M";
+    zoneKo = "페라이트 + 마르텐사이트";
+    description = "α-BCC + α'-BCT. 고강도·저연성, 취화 주의 영역";
+  } else if (ferrite >= 45) {
+    zone = "F+A";
+    zoneKo = "페라이트 + 오스테나이트";
+    description = "α-BCC 주상. 강도↑·연신율↓, 듀플렉스 경계 영역";
+  } else if (martensite >= 20) {
+    zone = "M";
+    zoneKo = "마르텐사이트 우세";
+    description = "α'-BCT 우세. 최고 강도·최저 연성, 퀜칭 조직";
+  }
+
+  // Low-alloy guard: Schaeffler is stainless-oriented. Flag when both
+  // equivalents are very low so UI can show a caveat, not a hard verdict.
+  const lowAlloy = ni < 2 && cr < 5;
+
+  return { zone, zoneKo, description, dominantPhase, dominantCrystal, lowAlloy };
+}
+
 // Microstructure phase fractions — Schaeffler-diagram inspired empirical model
 // Returns fractions in percent
 export function predictPhases(composition) {
@@ -99,21 +159,26 @@ export function predictPhases(composition) {
   const total_eq = Ni_eq + Cr_eq;
   const ratio = total_eq > 0 ? Cr_eq / total_eq : 0.5;
 
+  // WRC-1992 equivalents (Kotecki & Siewert 1992, 현행 표준 축 정의).
+  // FN은 도표 iso-line 판독값이라 식으로 산출하지 않고 위치값까지만 제공.
+  const WRC_Ni_eq = Ni + 35*C + 20*N + 0.25*Cu;
+  const WRC_Cr_eq = Cr + Mo + 0.7*Nb;
+
   let austenite, ferrite, martensite, bainite;
 
-  if (ratio < 0.42) {
+  if (ratio < 0.45) {
     austenite = Math.min(98, 70 + Ni_eq * 0.60);
     ferrite   = Math.max(0, 100 - austenite - 2);
     martensite = 2;
     bainite   = 0;
-  } else if (ratio < 0.62) {
-    const t   = (ratio - 0.42) / 0.20;
-    ferrite   = Math.min(55, t * 55);
-    austenite = Math.max(35, 95 - ferrite);
-    martensite = Math.min(10, t * 10);
+  } else if (ratio < 0.68) {
+    const t   = (ratio - 0.45) / 0.23;
+    ferrite   = Math.min(20, t * 20);
+    austenite = Math.max(75, 95 - ferrite);
+    martensite = Math.min(5, t * 5);
     bainite   = 0;
   } else {
-    const t   = Math.min(1, (ratio - 0.62) / 0.20);
+    const t   = Math.min(1, (ratio - 0.68) / 0.20);
     ferrite   = Math.min(80, 45 + t * 35);
     martensite = Math.min(40, t * 40);
     austenite  = Math.max(0, 100 - ferrite - martensite);
@@ -123,13 +188,31 @@ export function predictPhases(composition) {
   const sum   = austenite + ferrite + martensite + bainite;
   const scale = sum > 0 ? 100 / sum : 1;
 
-  return {
+  const fracs = {
     austenite:  Math.round(austenite  * scale),
     ferrite:    Math.round(ferrite    * scale),
     martensite: Math.round(martensite * scale),
     bainite:    Math.round(bainite    * scale),
-    Ni_eq:      Ni_eq.toFixed(1),
-    Cr_eq:      Cr_eq.toFixed(1)
+  };
+  const NiEq = Ni_eq;
+  const CrEq = Cr_eq;
+  const schaeffler = classifySchaeffler(NiEq, CrEq, fracs);
+
+  return {
+    ...fracs,
+    Ni_eq:      NiEq.toFixed(1),
+    Cr_eq:      CrEq.toFixed(1),
+    NiEq:       NiEq.toFixed(1),
+    CrEq:       CrEq.toFixed(1),
+    WRC_Ni_eq:  WRC_Ni_eq.toFixed(2),
+    WRC_Cr_eq:  WRC_Cr_eq.toFixed(2),
+    crystal: {
+      austenite: PHASE_CRYSTAL.austenite.structure,
+      ferrite: PHASE_CRYSTAL.ferrite.structure,
+      martensite: PHASE_CRYSTAL.martensite.structure,
+      bainite: PHASE_CRYSTAL.bainite.structure,
+    },
+    schaeffler,
   };
 }
 
