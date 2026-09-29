@@ -244,6 +244,22 @@ export function generateSNCurve(UTS, YS, nPoints = 16) {
   });
 }
 
+// High-temperature derating (empirical): strength falls, ductility rises
+// toward the melting point. th = homologous temperature 0 (room) → 1 (melt).
+// Labels as estimate — real hot tensile data (ASTM E21) needed for calibration.
+export function derateForTemperature(UTS, elongPct, testTempC, meltingPointC) {
+  const t = Math.max(0, Math.min(1, ((testTempC ?? 20) - 20) / Math.max(1, (meltingPointC ?? 1450) - 20)));
+  const strengthScale = Math.max(0.15, 1 - 0.85 * Math.pow(t, 1.2));
+  const ductScale = Math.min(2.2, 1 + 1.2 * t);
+  return {
+    t,
+    uts: (UTS ?? 800) * strengthScale,
+    elong: (elongPct ?? 14) * ductScale,
+    strengthScale,
+    ductScale,
+  };
+}
+
 // Vickers hardness estimate from UTS (Meyer's empirical: HV ≈ UTS / 3.3 for steel)
 export function estimateHardness(UTS) {
   const HV  = Math.round(UTS / 3.3);
