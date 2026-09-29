@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { predictPhases, classifyFracture, estimateHardness, estimateKIC, generateSNCurve } from "../lib/physics.js";
+import { latticeEstimates } from "./LatticeViewer.jsx";
 
 // ── Mini stress-strain SVG for the report ──────────────────────────────────
 function ReportSSChart({ points, UTS, YS, elongPct }) {
@@ -262,7 +263,17 @@ ${compRows}
 
 Cr 당량(Cr_eq) **${c.phases.Cr_eq}**, Ni 당량(Ni_eq) **${c.phases.Ni_eq}** — Schaeffler 도표의 위치값이다. ΔSmix가 11 이상이면 고엔트로피 합금(HEA)으로 분류한다.
 
-## 2. 상 · 결정구조 판정 (Schaeffler)
+## 2. 공정 조건
+
+| 항목 | 값 | 의미 |
+| --- | --- | --- |
+| 고용화 처리 온도 | ${c.solTemp} °C | 합금 원소를 고르게 녹여내기 위해 가열하는 온도 |
+| 고용화 처리 시간 | ${(c.solTime / 3600).toFixed(1)} h | 균질화에 필요한 유지 시간 — 길수록 석출물 재용해 완전 |
+| 시험 온도 | ${c.testTempC.toFixed(0)} °C | 시험 환경 온도 (고온일수록 강도 저하) |
+
+조성 다음에 공정이 오는 순서다. 같은 조성이라도 용체화·냉각 조건에 따라 석출과 상분율이 달라져 뒤의 상 판정과 물성이 바뀐다.
+
+## 3. 상 · 결정구조 판정 (Schaeffler)
 
 **판정**: ${c.sch.zone} · ${c.sch.zoneKo} — ${c.sch.description}
 **주상**: ${c.sch.dominantPhase} (${c.sch.dominantCrystal})
@@ -271,13 +282,13 @@ Cr 당량(Cr_eq) **${c.phases.Cr_eq}**, Ni 당량(Ni_eq) **${c.phases.Ni_eq}** �
 
 위 % 숫자의 의미: ${c.phaseMethodNote} 마르텐사이트는 평형상이 아니라 급랭 과정에서 생기는 비평형 조직이라 CALPHAD 평형 계산에는 나오지 않고 경험식에서만 추정된다. Schaeffler 도표 자체가 용접된 그대로의 조직용 경험식이라 단조·열처리재에는 참고용으로만 쓴다. WRC-1992 표준 위치값(Cr_eq ${c.phases.WRC_Cr_eq} / Ni_eq ${c.phases.WRC_Ni_eq})도 함께 기재한다. FN(페라이트수)은 도표 판독값이라 본 보고서에는 싣지 않는다.
 
-## 3. 공정 조건
+### 결정 격자 정보 (격자 뷰어 연동)
 
-| 항목 | 값 | 의미 |
-| --- | --- | --- |
-| 고용화 처리 온도 | ${c.solTemp} °C | 합금 원소를 고르게 녹여내기 위해 가열하는 온도 |
-| 고용화 처리 시간 | ${(c.solTime / 3600).toFixed(1)} h | 균질화에 필요한 유지 시간 — 길수록 석출물 재용해 완전 |
-| 시험 온도 | ${c.testTempC.toFixed(0)} °C | 시험 환경 온도 (고온일수록 강도 저하) |
+{{lattice_info}}
+
+{{lattice_shot}}
+
+격자 뷰어(앱 내 팝업)에서 위 구조를 3D 단위셀로 회전·확대하며 볼 수 있다. 격자상수는 원자반지름 가중평균(Vegard 근사) 추정치이며, BCT의 c/a는 C 함량 근사식(c/a≈1+0.045·C%)을 쓴다.
 
 ## 4. 예측 물성값
 
@@ -364,6 +375,7 @@ export default function ReportModal({
   const KIC       = estimateKIC(UTS, elong);
   const snCurve   = useMemo(() => generateSNCurve(UTS, YS, 16), [UTS, YS]);
   const Se        = Math.min(700, 0.504 * UTS);
+  const lat       = useMemo(() => latticeEstimates(composition ?? {}), [composition]);
 
   // ── 파생 파라미터 ──
   const density = prediction?.density ?? 7.8;
@@ -426,6 +438,12 @@ export default function ReportModal({
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [editMode, setEditMode] = useState(false);
+  const [latticeShot] = useState(() => {
+    try {
+      const raw = localStorage.getItem("maps-lattice-shot");
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
   const taRef = useRef(null);
 
   // ── 마크다운 서식 버튼용 커서 삽입 헬퍼 ──
@@ -481,6 +499,55 @@ export default function ReportModal({
     ss_chart: <ReportSSChart points={stressStrainPoints} UTS={UTS} YS={YS} elongPct={elong} />,
     sn_chart: <ReportSNChart snCurve={snCurve} Se={Se} />,
     phase_bar: <PhaseBar phases={phases} />,
+    lattice_info: (
+      <div>        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 6 }}>
+          <thead><tr>
+            {[ "구조", "격자상수 (추정)", "대응 상" ].map((h, i) => (
+              <th key={i} style={{ background: "#f0f0f0", padding: "4px 8px", borderBottom: "1px solid #ddd", fontWeight: 600, textAlign: "left", fontSize: 11 }}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>FCC (면심입방)</td>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>a = {lat.aFcc !== null ? lat.aFcc.toFixed(2) : "—"} Å</td>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>γ 오스테나이트</td>
+            </tr>
+            <tr>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>BCC (체심입방)</td>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>a = {lat.aBcc !== null ? lat.aBcc.toFixed(2) : "—"} Å</td>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>α 페라이트</td>
+            </tr>
+            <tr>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>BCT (체심정방)</td>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>a = {lat.aBcc !== null ? lat.aBcc.toFixed(2) : "—"} Å, c = {lat.cBct !== null ? lat.cBct.toFixed(2) : "—"} Å (c/a={lat.cOverA.toFixed(3)})</td>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>α' 마르텐사이트</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", marginTop: 6 }}>
+          {lat.legend.map(l => (
+            <span key={l.el} style={{ fontSize: 10, color: "#444", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: l.color, display: "inline-block" }} />
+              {l.el}: <strong>{l.pct}%</strong>
+            </span>
+          ))}
+        </div>
+      </div>
+    ),
+    lattice_shot: latticeShot?.img ? (
+      <div>
+        <img src={latticeShot.img} alt="격자 뷰어 스냅샷"
+          style={{ width: 320, borderRadius: 4, border: "1px solid #ddd" }} />
+        <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>
+          격자 뷰어 스냅샷 ({latticeShot.structure})
+        </div>
+      </div>
+    ) : (
+      <div style={{ fontSize: 11, color: "#999", padding: 12, background: "#f8f8f8",
+        borderRadius: 4, textAlign: "center" }}>
+        격자 뷰어에서 📷 스냅샷을 저장한 뒤 보고서를 다시 열면 사진이 들어갑니다.
+      </div>
+    ),
     sim_image: imageUrl ? (
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
         <img src={imageUrl} alt="3D Simulation" style={{ width: 340, borderRadius: 4, border: "1px solid #ddd" }} />
