@@ -530,6 +530,20 @@ function bindEvents() {
     document.querySelector('.app-shell').classList.toggle('sidebar-collapsed');
   });
 
+  // Dark mode (persisted)
+  const applyTheme = (theme) => {
+    if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
+    try { localStorage.setItem('maps-theme', theme); } catch (_) {}
+  };
+  try {
+    if ((localStorage.getItem('maps-theme') || 'light') === 'dark') applyTheme('dark');
+  } catch (_) {}
+  document.getElementById('darkModeBtn').addEventListener('click', () => {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    applyTheme(isDark ? 'light' : 'dark');
+  });
+
   // Nav page switching
   document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
     btn.addEventListener('click', () => switchPage(btn.dataset.page));
