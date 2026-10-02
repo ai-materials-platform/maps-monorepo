@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { predictPhases, classifyFracture, estimateHardness, estimateKIC } from "../lib/physics.js";
+import { predictPhases, classifyFracture, estimateHardness, estimateKIC, generateSNCurve } from "../lib/physics.js";
+import { latticeEstimates } from "./LatticeViewer.jsx";
 
 // ── Mini stress-strain SVG for the report ──────────────────────────────────
 function ReportSSChart({ points, UTS, YS, elongPct }) {
@@ -107,7 +108,13 @@ function ReportSNChart({ snCurve, Se }) {
 // ── Microstructure Phase Bar ─────────────────────────────────────────────────
 function PhaseBar({ phases }) {
   const colors = { austenite: "#1a5fa8", ferrite: "#217a3c", martensite: "#c0392b", bainite: "#b45309" };
-  const labels = { austenite: "오스테나이트", ferrite: "페라이트", martensite: "마르텐사이트", bainite: "베이나이트" };
+  const labels = {
+    austenite: "오스테나이트 γ-FCC",
+    ferrite: "페라이트 α-BCC",
+    martensite: "마르텐사이트 α'-BCT",
+    bainite: "베이나이트 BCT",
+  };
+  const sch = phases?.schaeffler;
   return (
     <div>
       <div style={{ display: "flex", height: 14, borderRadius: 3, overflow: "hidden", marginBottom: 4 }}>
@@ -123,8 +130,228 @@ function PhaseBar({ phases }) {
           </span>
         ))}
       </div>
+      {sch && (
+        <div style={{ marginTop: 6, padding: "6px 8px", background: "#EEF6FF", border: "1px solid #BFDBFE", borderRadius: 4, fontSize: 10, color: "#334155", lineHeight: 1.5 }}>
+          <strong>Schaeffler 판정: {sch.zone} · {sch.zoneKo}</strong>
+          <div>{sch.description}</div>
+          <div>주상: {sch.dominantPhase} ({sch.dominantCrystal}) · Ni_eq {phases.Ni_eq} / Cr_eq {phases.Cr_eq}</div>
+          <div>WRC-1992 위치: Cr_eq {phases.WRC_Cr_eq} / Ni_eq {phases.WRC_Ni_eq} (FN은 도표 판독, 본 보고서는 미기재)</div>
+          {sch.lowAlloy && <div style={{ color: "#b45309" }}>저합금 조성이라 판정은 참고용입니다.</div>}
+        </div>
+      )}
     </div>
   );
+}
+
+// ── Minimal markdown renderer (headings / tables / lists / bold / hr / slots) ──
+function renderInline(text, keyBase) {
+  const parts = String(text).split(/(\*\*[^*]+\*\*|@\d+\([^)]*\)|`[^`]+`|\[[^\]]+\]\([^)]*\))/g);
+  return parts.map((p, i) => {
+    const kb = `${keyBase}-${i}`;
+    let m = /^\*\*(.+)\*\*$/.exec(p);
+    if (m) return <strong key={kb}>{m[1]}</strong>;
+    m = /^@(\d+)\(([^)]*)\)$/.exec(p);
+    if (m) return <span key={kb} style={{ fontSize: Number(m[1]) }}>{renderInline(m[2], kb)}</span>;
+    m = /^`([^`]+)`$/.exec(p);
+    if (m) return <code key={kb} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 3, padding: "0 4px", fontSize: 10, fontFamily: "Consolas,monospace" }}>{m[1]}</code>;
+    m = /^\[([^\]]+)\]\(([^)]*)\)$/.exec(p);
+    if (m) return <a key={kb} href={m[2]} target="_blank" rel="noreferrer" style={{ color: "#1a5fa8" }}>{m[1]}</a>;
+    return <span key={kb}>{p}</span>;
+  });
+}
+
+function renderMarkdown(md, slots) {
+  const lines = String(md ?? "").split("\n");
+  const out = [];
+  let i = 0, key = 0;
+  const tblStyle = { width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 6 };
+  const thStyle = { background: "#f0f0f0", padding: "4px 8px", borderBottom: "1px solid #ddd", fontWeight: 600, textAlign: "left", fontSize: 11 };
+  const tdStyle = { padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 };
+  const h2Style = { fontSize: 13, fontWeight: 700, color: "#1a5fa8", borderBottom: "2px solid #1a5fa8", paddingBottom: 4, marginBottom: 10, marginTop: 18 };
+  while (i < lines.length) {
+    const line = lines[i];
+    const trim = line.trim();
+    const slotM = /^\{\{(\w+)\}\}$/.exec(trim);
+    if (slotM && slots[slotM[1]]) {
+      out.push(<div key={key++} style={{ margin: "8px 0" }}>{slots[slotM[1]]}</div>);
+      i += 1; continue;
+    }
+    if (/^###\s+/.test(trim)) {
+      out.push(<h3 key={key++} style={{ fontSize: 12, fontWeight: 700, color: "#333", margin: "12px 0 6px" }}>{renderInline(trim.replace(/^###\s+/, ""), `h3-${key}`)}</h3>);
+      i += 1; continue;
+    }
+    if (/^##\s+/.test(trim)) {
+      out.push(<h2 key={key++} style={h2Style}>{renderInline(trim.replace(/^##\s+/, ""), `h2-${key}`)}</h2>);
+      i += 1; continue;
+    }
+    if (/^---+$/.test(trim)) {
+      out.push(<hr key={key++} style={{ border: "none", borderTop: "1px solid #ddd", margin: "14px 0" }} />);
+      i += 1; continue;
+    }
+    if (/^\|\s*:?-+/.test(trim) || /^\|.*\|$/.test(trim)) {
+      // table block
+      const rows = [];
+      while (i < lines.length && /^\|.*\|$/.test(lines[i].trim())) {
+        rows.push(lines[i].trim().slice(1, -1).split("|").map(c => c.trim()));
+        i += 1;
+      }
+      const isSep = (r) => r.every(c => /^:?-+:?$/.test(c));
+      let head = null, body = rows;
+      if (rows.length > 1 && isSep(rows[1])) { head = rows[0]; body = rows.slice(2); }
+      out.push(
+        <table key={key++} style={tblStyle}>
+          {head && <thead><tr>{head.map((c, ci) => <th key={ci} style={thStyle}>{renderInline(c, `th-${key}-${ci}`)}</th>)}</tr></thead>}
+          <tbody>{body.filter(r => !isSep(r)).map((r, ri) => (
+            <tr key={ri}>{r.map((c, ci) => <td key={ci} style={tdStyle}>{renderInline(c, `td-${key}-${ri}-${ci}`)}</td>)}</tr>
+          ))}</tbody>
+        </table>
+      );
+      continue;
+    }
+    if (/^-\s+/.test(trim)) {
+      const items = [];
+      while (i < lines.length && /^-\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^-\s+/, ""));
+        i += 1;
+      }
+      out.push(
+        <ul key={key++} style={{ fontSize: 11, color: "#333", lineHeight: 1.8, margin: "6px 0", paddingLeft: 20 }}>
+          {items.map((t, ti) => <li key={ti}>{renderInline(t, `li-${key}-${ti}`)}</li>)}
+        </ul>
+      );
+      continue;
+    }
+    if (/^>\s?/.test(trim)) {
+      const quotes = [];
+      while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
+        quotes.push(lines[i].trim().replace(/^>\s?/, ""));
+        i += 1;
+      }
+      out.push(
+        <div key={key++} style={{ borderLeft: "3px solid #1a5fa8", background: "#f8fafc", padding: "6px 12px", margin: "6px 0", fontSize: 11, color: "#334155", lineHeight: 1.8 }}>
+          {quotes.map((t, ti) => <div key={ti}>{renderInline(t, `q-${key}-${ti}`)}</div>)}
+        </div>
+      );
+      continue;
+    }
+    if (trim === "") { i += 1; continue; }
+    // paragraph (join following plain lines)
+    const para = [trim];
+    i += 1;
+    while (i < lines.length) {
+      const t2 = lines[i].trim();
+      if (t2 === "" || /^(##|###|---|-\s+|>\s?|\|.*\|)$/.test(t2) || /^\{\{\w+\}\}$/.test(t2)) break;
+      para.push(t2); i += 1;
+    }
+    out.push(<p key={key++} style={{ fontSize: 11, color: "#333", lineHeight: 1.8, margin: "6px 0" }}>{renderInline(para.join(" "), `p-${key}`)}</p>);
+  }
+  return out;
+}
+
+// ── Build the editable markdown source ───────────────────────────────────────
+function buildMarkdown(c) {
+  const compRows = Object.entries(c.composition ?? {})
+    .map(([el, val]) => `| ${el} | ${Number(c.comp[el] ?? val).toFixed(1)}% | ${c.roles[el] ?? "합금 기지 원소"} |`)
+    .join("\n");
+  return `## 1. 합금 조성 및 원소 역할 분석
+
+**합금 클래스**: ${c.alloyClass} / **혼합 엔트로피 ΔSmix**: ${c.Smix.toFixed(2)} J/mol·K (${c.entropyKo})
+
+| 원소 | 정규화 (%) | 주요 역할 |
+| --- | --- | --- |
+${compRows}
+
+Cr 당량(Cr_eq) **${c.phases.Cr_eq}**, Ni 당량(Ni_eq) **${c.phases.Ni_eq}** — Schaeffler 도표의 위치값이다. ΔSmix가 11 이상이면 고엔트로피 합금(HEA)으로 분류한다.
+
+## 2. 공정 조건
+
+| 항목 | 값 | 의미 |
+| --- | --- | --- |
+| 고용화 처리 온도 | ${c.solTemp} °C | 합금 원소를 고르게 녹여내기 위해 가열하는 온도 |
+| 고용화 처리 시간 | ${(c.solTime / 3600).toFixed(1)} h | 균질화에 필요한 유지 시간 — 길수록 석출물 재용해 완전 |
+| 시험 온도 | ${c.testTempC.toFixed(0)} °C | 시험 환경 온도 (고온일수록 강도 저하) |
+
+조성 다음에 공정이 오는 순서다. 같은 조성이라도 용체화·냉각 조건에 따라 석출과 상분율이 달라져 뒤의 상 판정과 물성이 바뀐다.
+
+## 3. 상 · 결정구조 판정 (Schaeffler)
+
+**판정**: ${c.sch.zone} · ${c.sch.zoneKo} — ${c.sch.description}
+**주상**: ${c.sch.dominantPhase} (${c.sch.dominantCrystal})
+
+{{phase_bar}}
+
+위 % 숫자의 의미: ${c.phaseMethodNote} 마르텐사이트는 평형상이 아니라 급랭 과정에서 생기는 비평형 조직이라 CALPHAD 평형 계산에는 나오지 않고 경험식에서만 추정된다. Schaeffler 도표 자체가 용접된 그대로의 조직용 경험식이라 단조·열처리재에는 참고용으로만 쓴다. WRC-1992 표준 위치값(Cr_eq ${c.phases.WRC_Cr_eq} / Ni_eq ${c.phases.WRC_Ni_eq})도 함께 기재한다. FN(페라이트수)은 도표 판독값이라 본 보고서에는 싣지 않는다.
+
+### 결정 격자 정보 (격자 뷰어 연동)
+
+{{lattice_info}}
+
+{{lattice_shot}}
+
+격자 뷰어(앱 내 팝업)에서 위 구조를 3D 단위셀로 회전·확대하며 볼 수 있다. 격자상수는 원자반지름 가중평균(Vegard 근사) 추정치이며, BCT의 c/a는 C 함량 근사식(c/a≈1+0.045·C%)을 쓴다.
+
+## 4. 예측 물성값
+
+| 특성 | 값 | 의미 |
+| --- | --- | --- |
+| 인장강도 (UTS) | **${c.UTS.toFixed(1)} MPa** | 재료가 끊어지기 직전까지 버틸 수 있는 최대 응력. 높을수록 강한 재료 |
+| 항복응력 (YS) | ${c.YS.toFixed(1)} MPa | 영구 변형이 시작되는 응력. 초과하면 원래 모양으로 돌아오지 않음 |
+| 탄성 계수 (E) | ${c.E.toFixed(1)} GPa | 얼마나 뻣뻣한지. 높을수록 변형이 적음 |
+| 연신율 | ${c.elong?.toFixed(1) ?? "—"} % | 파단까지 늘어나는 비율. 높을수록 연성 재료 |
+| 단면 감소율 (RA) | ${c.area?.toFixed(1) ?? "—"} % | 파단 후 단면적 감소율. 높을수록 에너지 흡수 능력 큼 |
+| 경도 (HV / HB / HRC) | ${c.hardness.HV} / ${c.hardness.HB} / ${c.hardness.HRC} | 표면 긁힘 저항. 강도와 비례하는 경향 |
+| 파괴인성 (KIC) | ${c.KIC} MPa·√m | 균열이 있어도 버티는 능력. 낮으면 작은 결함에도 갑자기 파단 |
+| 밀도 | ${c.density.toFixed(2)} g/cm³ | 낮을수록 가벼운 재료 (Al ~2.7, Ti ~4.5, Fe ~7.9) |
+| 용융점 | ${c.meltingPoint} °C | 녹기 시작하는 온도. 내열 용도는 높을수록 유리 |
+| 열전도율 | ${c.thermalConductivity} W/m·K | 방열 부품은 높아야, 단열 부품은 낮아야 유리 |
+
+## 5. 응력-변형률 곡선
+
+{{ss_chart}}
+
+가로축은 변형률(늘어난 비율 %), 세로축은 응력(MPa)이다. **주황 점선(항복점 ${c.YS.toFixed(0)} MPa)** 을 넘으면 영구 변형이 시작되고, **빨간 점선(UTS ${c.UTS.toFixed(0)} MPa)** 이 버틸 수 있는 최대 응력이다. 곡선 아래 면적은 재료가 흡수할 수 있는 에너지(인성)이며, 초기 기울기는 탄성 계수 E = ${c.E.toFixed(0)} GPa이다.
+
+## 6. 피로 S-N 곡선 (Basquin)
+
+{{sn_chart}}
+
+가로축은 파단까지의 반복 횟수(로그), 세로축은 응력 진폭이다. **내구한도 약 ${c.Se.toFixed(0)} MPa** 이하에서는 사실상 무한 수명으로 본다(철강 기준). 곡선은 Basquin 식 기반 추정치라 실제 피로 시험으로 보정이 필요하다.
+
+## 7. 3D 시뮬레이션 스냅샷
+
+{{sim_image}}
+
+## 8. 응력 분포 분석
+
+| 항목 | 값 | 의미 |
+| --- | --- | --- |
+| 최대 등가 응력 | ${(c.simMax ?? c.UTS).toFixed(0)} MPa | 시편 내부 응력 집중점의 Von Mises 등가 응력. 3D 응력 상태를 하나의 숫자로 표현 |
+| 항복 응력 (YS) | ${c.YS.toFixed(0)} MPa | 초과 시 영구 변형 |
+| 안전계수 (SF) | ${typeof c.safetyFactor === "number" ? c.safetyFactor.toFixed(2) : "—"} | 항복응력 ÷ 최대응력. 1.0 미만이면 이미 소성 변형 중, 1.5 이상이면 안전한 설계 |
+| 시험 방식 | ${c.activeTest === "bending" ? "굽힘" : "인장"} | ${c.activeTest === "bending" ? "굽힘: 위아래 표면 응력 최대, 중앙 중립면 0 — 표면 결함이 파단을 지배" : "인장: 게이지 중앙 응력 집중, 넥킹 시 단면 급감으로 응력 급등"} |
+
+Von Mises 응력은 파란색(낮음)→초록→빨간색(높음) 컬러맵으로 표시된다. 안전계수는 설계 여유를 뜻한다: **1.5 이상 안전, 1.0~1.5 주의, 1.0 미만 항복 초과**로 읽는다.
+
+## 9. 파단 분석
+
+| 항목 | 값 | 의미 |
+| --- | --- | --- |
+| 파단 유형 | ${c.fracture.korean} | ${c.fracture.type === "ductile" ? "끊어지기 전에 눈에 띄게 늘어남 — 사전 경고가 있어 비교적 안전" : c.fracture.type === "brittle" ? "거의 변형 없이 갑자기 파단 — 위험, 충격에 취약" : "연성과 취성이 혼합된 중간 형태"} |
+| 파면 형상 | ${c.fracture.morphology} | ${c.fracture.type === "ductile" ? "컵-앤드-콘: 중앙 섬유상 + 가장자리 45° 전단면" : "평탄한 벽개면 (cleavage)"} |
+| 파단 각도 | ${c.fracture.angle}° | 최대 전단응력 방향. 45°에 가까울수록 연성, 90°면 취성 |
+| 파괴인성 (KIC) | ${c.KIC} MPa·√m | 균열이 있을 때 버티는 능력 |
+
+## 10. 예측 신뢰도
+
+| 항목 | 값 | 의미 |
+| --- | --- | --- |
+| 예측 신뢰도 | ${c.confidence} % | 모델이 이 조성을 얼마나 잘 학습했는지. 90% 이상이면 신뢰도 높음 |
+| 격자 안정성 | ${c.latticeStability} % | 결정 구조 유지 예측. 낮으면 상 분리·취화 위험 |
+| 예측 모델 | ${c.modelSrc} | 플랫폼 모델은 실험 데이터 학습 기반, 로컬은 조성 비율 기반 추정 |
+| 혼합 엔트로피 | ${c.Smix.toFixed(2)} J/mol·K | 골고루 섞일수록 높아짐. 11 이상이면 고엔트로피 합금 |
+
+본 보고서는 디지털 트윈 시뮬레이션으로 자동 생성된 예측값이다. 실제 제조·가공 조건에 따라 결과가 달라질 수 있으며, 설계 적용 전 실측 시험을 권장한다.
+`;
 }
 
 // ── Main Report Modal ─────────────────────────────────────────────────────────
@@ -146,6 +373,9 @@ export default function ReportModal({
   const fracture  = classifyFracture(elong, area);
   const hardness  = estimateHardness(UTS);
   const KIC       = estimateKIC(UTS, elong);
+  const snCurve   = useMemo(() => generateSNCurve(UTS, YS, 16), [UTS, YS]);
+  const Se        = Math.min(700, 0.504 * UTS);
+  const lat       = useMemo(() => latticeEstimates(composition ?? {}), [composition]);
 
   // ── 파생 파라미터 ──
   const density = prediction?.density ?? 7.8;
@@ -207,6 +437,139 @@ export default function ReportModal({
 
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
+  const [editMode, setEditMode] = useState(false);
+  const [latticeShot] = useState(() => {
+    try {
+      const raw = localStorage.getItem("maps-lattice-shot");
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+  const taRef = useRef(null);
+
+  // ── 마크다운 서식 버튼용 커서 삽입 헬퍼 ──
+  const insertAtCursor = useCallback((before, after = "", placeholder = "") => {
+    const ta = taRef.current;
+    if (!ta) { setMdText(t => t + before + placeholder + after); return; }
+    const { selectionStart: s, selectionEnd: e, value } = ta;
+    const hadSel = e > s;
+    const sel = hadSel ? value.slice(s, e) : placeholder;
+    const next = value.slice(0, s) + before + sel + after + value.slice(e);
+    setMdText(next);
+    requestAnimationFrame(() => {
+      ta.focus();
+      if (hadSel) ta.setSelectionRange(s + before.length + sel.length + after.length, s + before.length + sel.length + after.length);
+      else ta.setSelectionRange(s + before.length, s + before.length + sel.length);
+    });
+  }, []);
+  const insertLinePrefix = useCallback((prefix) => {
+    const ta = taRef.current;
+    if (!ta) { setMdText(t => prefix + t); return; }
+    const { selectionStart: s, value } = ta;
+    const lineStart = value.lastIndexOf("\n", s - 1) + 1;
+    setMdText(value.slice(0, lineStart) + prefix + value.slice(lineStart));
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(s + prefix.length, s + prefix.length);
+    });
+  }, []);
+
+  const mdCtx = {
+    composition, comp: normalizedComposition ?? composition ?? {},
+    roles: ELEMENT_ROLES, alloyClass, Smix,
+    entropyKo: Smix > 11 ? "고엔트로피 합금 (HEA)" : Smix > 8 ? "중엔트로피 합금" : "저엔트로피 (통상 합금)",
+    phases, sch: phases?.schaeffler ?? {},
+    phaseMethodNote: "CALPHAD 평형 계산값이 있으면 그 값을, 없으면 Schaeffler 경험식 추정값을 표시한다. ",
+    solTemp, solTime, testTempC,
+    UTS, YS, E, elong, area, hardness, KIC, density,
+    meltingPoint: prediction?.meltingPoint?.toFixed(0) ?? "—",
+    thermalConductivity: prediction?.thermalConductivity?.toFixed(1) ?? "—",
+    simMax: simulation?.result?.maxStressMpa, safetyFactor, activeTest,
+    fracture,
+    confidence: prediction?.predictionConfidence?.toFixed(1) ?? "—",
+    latticeStability: prediction?.latticeStability?.toFixed(1) ?? "—",
+    modelSrc: prediction?.predictionSource ? "플랫폼 예측 모델" : "로컬 모델",
+    Se,
+  };
+
+  const initialMd = useMemo(() => buildMarkdown(mdCtx), []); // eslint-disable-line
+  const [mdText, setMdText] = useState(initialMd);
+  const dirty = mdText !== initialMd;
+
+  const slots = {
+    ss_chart: <ReportSSChart points={stressStrainPoints} UTS={UTS} YS={YS} elongPct={elong} />,
+    sn_chart: <ReportSNChart snCurve={snCurve} Se={Se} />,
+    phase_bar: <PhaseBar phases={phases} />,
+    lattice_info: (
+      <div>        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 6 }}>
+          <thead><tr>
+            {[ "구조", "격자상수 (추정)", "대응 상" ].map((h, i) => (
+              <th key={i} style={{ background: "#f0f0f0", padding: "4px 8px", borderBottom: "1px solid #ddd", fontWeight: 600, textAlign: "left", fontSize: 11 }}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>FCC (면심입방)</td>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>a = {lat.aFcc !== null ? lat.aFcc.toFixed(2) : "—"} Å</td>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>γ 오스테나이트</td>
+            </tr>
+            <tr>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>BCC (체심입방)</td>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>a = {lat.aBcc !== null ? lat.aBcc.toFixed(2) : "—"} Å</td>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>α 페라이트</td>
+            </tr>
+            <tr>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>BCT (체심정방)</td>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>a = {lat.aBcc !== null ? lat.aBcc.toFixed(2) : "—"} Å, c = {lat.cBct !== null ? lat.cBct.toFixed(2) : "—"} Å (c/a={lat.cOverA.toFixed(3)})</td>
+              <td style={{ padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 }}>α' 마르텐사이트</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", marginTop: 6 }}>
+          {lat.legend.map(l => (
+            <span key={l.el} style={{ fontSize: 10, color: "#444", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: l.color, display: "inline-block" }} />
+              {l.el}: <strong>{l.pct}%</strong>
+            </span>
+          ))}
+        </div>
+      </div>
+    ),
+    lattice_shot: latticeShot?.img ? (
+      <div>
+        <img src={latticeShot.img} alt="격자 뷰어 스냅샷"
+          style={{ width: 320, borderRadius: 4, border: "1px solid #ddd" }} />
+        <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>
+          격자 뷰어 스냅샷 ({latticeShot.structure})
+        </div>
+      </div>
+    ) : (
+      <div style={{ fontSize: 11, color: "#999", padding: 12, background: "#f8f8f8",
+        borderRadius: 4, textAlign: "center" }}>
+        격자 뷰어에서 📷 스냅샷을 저장한 뒤 보고서를 다시 열면 사진이 들어갑니다.
+      </div>
+    ),
+    sim_image: imageUrl ? (
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+        <img src={imageUrl} alt="3D Simulation" style={{ width: 340, borderRadius: 4, border: "1px solid #ddd" }} />
+        <div style={{ fontSize: 11, color: "#555", lineHeight: 1.8 }}>
+          <div><strong>시험 종류:</strong> {testName}</div>
+          <div><strong>최대 변형률:</strong> {(deformStats?.maxStrain ?? 0).toFixed(1)}%</div>
+          <div><strong>재료 상태:</strong> {(deformStats?.maxStrain ?? 0) < 2 ? "탄성" : (deformStats?.maxStrain ?? 0) < 8 ? "소성 변형" : "파단"}</div>
+          {simulation?.result && <>
+            <div><strong>최대 응력:</strong> {simulation.result.maxStressMpa?.toFixed(0)} MPa</div>
+            <div><strong>파손 위험:</strong> {simulation.result.failureRisk}</div>
+            <div><strong>안전 지수:</strong> {simulation.result.safetyIndex?.toFixed(1)}</div>
+          </>}
+        </div>
+      </div>
+    ) : (
+      <div style={{ fontSize: 11, color: "#999", padding: 16, background: "#f8f8f8", borderRadius: 4, textAlign: "center" }}>
+        시뮬레이션 실행 후 보고서를 다시 생성하면 이미지가 포함됩니다.
+      </div>
+    ),
+  };
+
+  const rendered = useMemo(() => renderMarkdown(mdText, slots), [mdText]); // eslint-disable-line
 
   const handlePrint = useCallback(async () => {
     if (window.desktopApi?.savePDF) {
@@ -239,16 +602,7 @@ export default function ReportModal({
   }, [onClose]);
 
   const comp = normalizedComposition ?? composition ?? {};
-  const maxStrain = deformStats?.maxStrain ?? 0;
-
-  const tbl = { width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 6 };
-  const th  = { background: "#f0f0f0", padding: "4px 8px", borderBottom: "1px solid #ddd",
-                fontWeight: 600, textAlign: "left", fontSize: 11 };
-  const td  = { padding: "4px 8px", borderBottom: "1px solid #ececec", fontSize: 11 };
-  const tdR = { ...td, textAlign: "right", fontFamily: "monospace" };
-  const sec = { marginBottom: 18 };
-  const h2s = { fontSize: 13, fontWeight: 700, color: "#1a5fa8", borderBottom: "2px solid #1a5fa8",
-                paddingBottom: 4, marginBottom: 10, marginTop: 0 };
+  void comp;
 
   return createPortal(
     <>
@@ -267,7 +621,7 @@ export default function ReportModal({
           className="report-modal"
           onClick={e => e.stopPropagation()}
           style={{
-            background: "#fff", borderRadius: 6, width: 820,
+            background: "#fff", borderRadius: 6, width: editMode ? 1180 : 820,
             maxWidth: "100%", boxShadow: "0 8px 40px rgba(0,0,0,0.25)",
             fontFamily: "'IBM Plex Sans','Noto Sans KR',sans-serif",
             color: "#1e1e1e"
@@ -279,13 +633,36 @@ export default function ReportModal({
             padding: "12px 20px", background: "#1a5fa8", borderRadius: "6px 6px 0 0"
           }}>
             <span style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>
-              ⚗ 재료 시험 보고서
+              ⚗ 재료 시험 보고서{dirty ? " (수정됨)" : ""}
             </span>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               {saveMsg && (
                 <span style={{ fontSize: 11, color: saveMsg.includes("완료") ? "#afffb5" : "#ffb3b3" }}>
                   {saveMsg}
                 </span>
+              )}
+              <button
+                onClick={() => setEditMode(v => !v)}
+                style={{
+                  background: editMode ? "#FFB020" : "rgba(255,255,255,0.2)", color: editMode ? "#1e1e1e" : "#fff",
+                  border: "1px solid rgba(255,255,255,0.4)",
+                  borderRadius: 4, padding: "5px 14px", fontWeight: 700,
+                  fontSize: 12, cursor: "pointer"
+                }}
+              >
+                {editMode ? "✓ 편집 완료" : "✎ 편집"}
+              </button>
+              {editMode && dirty && (
+                <button
+                  onClick={() => setMdText(initialMd)}
+                  style={{
+                    background: "rgba(255,255,255,0.2)", color: "#fff",
+                    border: "1px solid rgba(255,255,255,0.4)",
+                    borderRadius: 4, padding: "5px 10px", cursor: "pointer", fontSize: 12
+                  }}
+                >
+                  초기화
+                </button>
               )}
               <button
                 onClick={handlePrint}
@@ -312,334 +689,81 @@ export default function ReportModal({
             </div>
           </div>
 
-          {/* ── Print Area ── */}
-          <div
-            ref={printAreaRef}
-            className="report-print-area"
-            style={{ padding: "24px 28px" }}
-          >
-            {/* Header */}
-            <div style={{ textAlign: "center", marginBottom: 18, borderBottom: "1px solid #ddd", paddingBottom: 14 }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#1a5fa8", letterSpacing: -0.5 }}>
-                합금 디지털 트윈 — 재료 시험 보고서
+          {/* ── Print Area (single source of truth for PDF) ── */}
+          {editMode ? (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
+              <div style={{ borderRight: "1px solid #ddd", display: "flex", flexDirection: "column" }}>
+                <div style={{ padding: "8px 14px", background: "#f1f5f9", fontSize: 11, fontWeight: 700, color: "#475569" }}>
+                  Markdown 편집
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "6px 10px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+                  {[
+                    { label: "굵게", title: "선택 영역 굵게 (**)", fn: () => insertAtCursor("**", "**", "굵은 글씨") },
+                    { label: "제목", title: "줄을 ## 제목으로", fn: () => insertLinePrefix("## ") },
+                    { label: "소제목", title: "줄을 ### 소제목으로", fn: () => insertLinePrefix("### ") },
+                    { label: "목록", title: "줄을 글머리(- )로", fn: () => insertLinePrefix("- ") },
+                    { label: "표", title: "3열 표 골격 삽입", fn: () => insertAtCursor("\n| 항목 | 값 | 의미 |\n| --- | --- | --- |\n|  |  |  |\n") },
+                    { label: "구분선", title: "--- 삽입", fn: () => insertAtCursor("\n---\n") },
+                    { label: "A- 작게", title: "선택 영역 10px (@10())", fn: () => insertAtCursor("@10(", ")", "작은 글씨") },
+                    { label: "A 보통", title: "선택 영역 12px (@12())", fn: () => insertAtCursor("@12(", ")", "보통 글씨") },
+                    { label: "A+ 크게", title: "선택 영역 15px (@15())", fn: () => insertAtCursor("@15(", ")", "큰 글씨") },
+                    { label: "인용", title: "줄을 인용(> )으로", fn: () => insertLinePrefix("> ") },
+                    { label: "코드", title: "선택 영역 코드(`)", fn: () => insertAtCursor("`", "`", "코드") },
+                    { label: "링크", title: "선택 영역 링크([텍스트](url))", fn: () => insertAtCursor("[", "](https://)", "링크 텍스트") },
+                    { label: "응력곡선", title: "{{ss_chart}} 삽입", fn: () => insertAtCursor("\n{{ss_chart}}\n") },
+                    { label: "S-N곡선", title: "{{sn_chart}} 삽입", fn: () => insertAtCursor("\n{{sn_chart}}\n") },
+                    { label: "상분율", title: "{{phase_bar}} 삽입", fn: () => insertAtCursor("\n{{phase_bar}}\n") },
+                    { label: "스냅샷", title: "{{sim_image}} 삽입", fn: () => insertAtCursor("\n{{sim_image}}\n") },
+                  ].map(b => (
+                    <button key={b.label} onClick={b.fn} title={b.title}
+                      style={{ padding: "3px 9px", fontSize: 11, fontWeight: 600, background: "#fff", color: "#334155", border: "1px solid #cbd5e1", borderRadius: 4, cursor: "pointer" }}>
+                      {b.label}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  ref={taRef}
+                  value={mdText}
+                  onChange={e => setMdText(e.target.value)}
+                  spellCheck={false}
+                  style={{
+                    flex: 1, minHeight: 600, border: "none", outline: "none",
+                    padding: "14px", fontSize: 12, lineHeight: 1.7,
+                    fontFamily: "'Consolas','D2Coding',monospace", resize: "vertical"
+                  }}
+                />
               </div>
-              <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>
-                합금: <strong>{alloyName ?? "—"}</strong> &nbsp;·&nbsp; 시험: <strong>{testName}</strong>
-                &nbsp;·&nbsp; 발행일: {today}
+              <div ref={printAreaRef} className="report-print-area" style={{ padding: "24px 28px" }}>
+                <div style={{ textAlign: "center", marginBottom: 18, borderBottom: "1px solid #ddd", paddingBottom: 14 }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#1a5fa8", letterSpacing: -0.5 }}>
+                    합금 디지털 트윈 — 재료 시험 보고서
+                  </div>
+                  <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>
+                    합금: <strong>{alloyName ?? "—"}</strong> &nbsp;·&nbsp; 시험: <strong>{testName}</strong>
+                    &nbsp;·&nbsp; 발행일: {today}
+                  </div>
+                </div>
+                {rendered}
               </div>
             </div>
-
-            {/* ── 1. 합금 조성 ── */}
-            <section style={sec}>
-              <h2 style={h2s}>1. 합금 조성 및 원소 역할 분석</h2>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                <div>
-                  <table style={tbl}>
-                    <thead><tr>
-                      <th style={th}>원소</th>
-                      <th style={{ ...th, textAlign: "right" }}>정규화 (%)</th>
-                      <th style={th}>주요 역할</th>
-                    </tr></thead>
-                    <tbody>
-                      {Object.entries(composition ?? {}).map(([el, v]) => (
-                        <tr key={el}>
-                          <td style={{ ...td, fontWeight: 700 }}>{el}</td>
-                          <td style={tdR}>{Number(comp[el] ?? v).toFixed(1)}%</td>
-                          <td style={{ ...td, fontSize: 10, color: "#555" }}>{ELEMENT_ROLES[el] ?? "합금 기지 원소"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          ) : (
+            <div
+              ref={printAreaRef}
+              className="report-print-area"
+              style={{ padding: "24px 28px" }}
+            >
+              <div style={{ textAlign: "center", marginBottom: 18, borderBottom: "1px solid #ddd", paddingBottom: 14 }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#1a5fa8", letterSpacing: -0.5 }}>
+                  합금 디지털 트윈 — 재료 시험 보고서
                 </div>
-                <div>
-                  <table style={tbl}>
-                    <tbody>
-                      <tr><td style={td}>합금 클래스</td><td style={{ ...tdR, color: "#1a5fa8", fontWeight: 700 }}>{alloyClass}</td></tr>
-                      <tr><td style={td}>혼합 엔트로피 ΔSmix</td><td style={tdR}>{Smix.toFixed(2)} J/mol·K</td></tr>
-                      <tr><td style={td}>고엔트로피 여부</td><td style={tdR}>{Smix > 11 ? "고엔트로피 합금 (HEA)" : Smix > 8 ? "중엔트로피 합금" : "저엔트로피 (통상 합금)"}</td></tr>
-                      <tr><td style={td}>Cr 당량 (Cr_eq)</td><td style={tdR}>{phases.Cr_eq}</td></tr>
-                      <tr><td style={td}>Ni 당량 (Ni_eq)</td><td style={tdR}>{phases.Ni_eq}</td></tr>
-                    </tbody>
-                  </table>
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: 11, marginBottom: 6, color: "#555", fontWeight: 600 }}>예측 미세조직 상 분율</div>
-                    <PhaseBar phases={phases} />
-                    <div style={{ fontSize: 10, color: "#888", marginTop: 6, lineHeight: 1.5 }}>
-                      Schaeffler 다이어그램 기반 추정값. 실제 상 분율은 냉각 속도·시효 조건에 따라 달라질 수 있습니다.
-                    </div>
-                  </div>
+                <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>
+                  합금: <strong>{alloyName ?? "—"}</strong> &nbsp;·&nbsp; 시험: <strong>{testName}</strong>
+                  &nbsp;·&nbsp; 발행일: {today}
                 </div>
               </div>
-            </section>
-
-            {/* ── 2. 공정 조건 ── */}
-            <section style={sec}>
-              <h2 style={h2s}>2. 공정 조건</h2>
-              <table style={{ ...tbl, width: "60%" }}>
-                <thead><tr>
-                  <th style={th}>항목</th>
-                  <th style={{ ...th, textAlign: "right" }}>값</th>
-                  <th style={th}>의미</th>
-                </tr></thead>
-                <tbody>
-                  <tr>
-                    <td style={td}>고용화 처리 온도</td>
-                    <td style={tdR}>{solTemp} °C</td>
-                    <td style={{ ...td, fontSize: 10, color: "#666" }}>합금 원소를 고르게 녹여내기 위해 가열하는 온도</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>고용화 처리 시간</td>
-                    <td style={tdR}>{(solTime/3600).toFixed(1)} h</td>
-                    <td style={{ ...td, fontSize: 10, color: "#666" }}>균질화에 필요한 유지 시간 — 길수록 석출물 재용해 완전</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>시험 온도</td>
-                    <td style={tdR}>{testTempC.toFixed(0)} °C</td>
-                    <td style={{ ...td, fontSize: 10, color: "#666" }}>시험이 진행되는 환경 온도 (고온일수록 강도 저하)</td>
-                  </tr>
-                </tbody>
-              </table>
-            </section>
-
-            {/* ── 3. 예측 물성값 ── */}
-            <section style={sec}>
-              <h2 style={h2s}>3. 예측 물성값</h2>
-              <table style={tbl}>
-                <thead><tr>
-                  <th style={th}>특성</th>
-                  <th style={{ ...th, textAlign: "right" }}>값</th>
-                  <th style={th}>의미</th>
-                </tr></thead>
-                <tbody>
-                  <tr>
-                    <td style={{ ...td, fontWeight: 700 }}>인장강도 (UTS)</td>
-                    <td style={{ ...tdR, fontWeight: 700, color: "#1a5fa8" }}>{UTS.toFixed(1)} MPa</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>재료가 끊어지기 직전까지 버틸 수 있는 최대 응력. 높을수록 강한 재료</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>항복응력 (YS)</td>
-                    <td style={tdR}>{YS.toFixed(1)} MPa</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>영구적인 변형이 시작되는 응력. 이 값을 초과하면 원래 모양으로 돌아오지 않음</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>탄성 계수 (Young's modulus)</td>
-                    <td style={tdR}>{E.toFixed(1)} GPa</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>힘을 가했을 때 재료가 얼마나 뻣뻣한지를 나타냄. 높을수록 변형이 적음</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>연신율 (Elongation)</td>
-                    <td style={tdR}>{elong?.toFixed(1) ?? "—"} %</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>파단까지 늘어나는 비율. 높을수록 잘 늘어나는 연성 재료</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>단면 감소율 (RA)</td>
-                    <td style={tdR}>{area?.toFixed(1) ?? "—"} %</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>파단 후 단면적이 줄어든 비율. 높을수록 연성이 좋고 에너지 흡수 능력이 큼</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>경도 (HV / HB / HRC)</td>
-                    <td style={tdR}>{hardness.HV} / {hardness.HB} / {hardness.HRC}</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>표면이 긁힘에 얼마나 저항하는지. 강도와 비례하는 경향</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>파괴인성 (KIC)</td>
-                    <td style={tdR}>{KIC} MPa·√m</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>균열이 있어도 버티는 능력. 낮으면 작은 결함에도 갑자기 파단될 수 있음</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>밀도</td>
-                    <td style={tdR}>{density.toFixed(2)} g/cm³</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>단위 부피당 질량. 낮을수록 가벼운 재료 (Al: ~2.7, Ti: ~4.5, Fe: ~7.9)</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>용융점</td>
-                    <td style={tdR}>{prediction?.meltingPoint?.toFixed(0) ?? "—"} °C</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>재료가 녹기 시작하는 온도. 내열 용도에서는 이 값이 높을수록 유리</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>열전도율</td>
-                    <td style={tdR}>{prediction?.thermalConductivity?.toFixed(1) ?? "—"} W/m·K</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>열이 얼마나 잘 전달되는지. 방열 부품은 높아야, 단열 부품은 낮아야 유리</td>
-                  </tr>
-                </tbody>
-              </table>
-            </section>
-
-            {/* ── 4. 응력-변형률 곡선 ── */}
-            <section style={sec}>
-              <h2 style={h2s}>4. 응력-변형률 곡선</h2>
-              <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
-                <ReportSSChart points={stressStrainPoints} UTS={UTS} YS={YS} elongPct={elong} />
-                <div style={{ fontSize: 11, color: "#555", lineHeight: 1.9, maxWidth: 300 }}>
-                  <div style={{ fontWeight: 700, color: "#333", marginBottom: 6 }}>그래프 읽는 법</div>
-                  <div>· <strong>가로축 (변형률)</strong>: 원래 길이 대비 늘어난 비율 (%)</div>
-                  <div>· <strong>세로축 (응력)</strong>: 단위 면적당 작용하는 힘 (MPa)</div>
-                  <div style={{ marginTop: 6 }}>
-                    · <span style={{ color: "#b45309", fontWeight: 600 }}>주황 점선 (항복점)</span>: 여기서부터 영구 변형 시작 → {YS.toFixed(0)} MPa
-                  </div>
-                  <div>· <span style={{ color: "#c0392b", fontWeight: 600 }}>빨간 점선 (UTS)</span>: 재료가 버틸 수 있는 최대 응력 → {UTS.toFixed(0)} MPa</div>
-                  <div style={{ marginTop: 6 }}>· <strong>곡선 아래 면적</strong>: 재료가 흡수할 수 있는 에너지의 크기 (넓을수록 인성이 높음)</div>
-                  <div style={{ marginTop: 6 }}>· <strong>초기 기울기</strong>: 탄성 계수 E = {E.toFixed(0)} GPa (가파를수록 뻣뻣한 재료)</div>
-                </div>
-              </div>
-            </section>
-
-            {/* ── 5. 3D 시뮬레이션 이미지 ── */}
-            <section style={sec}>
-              <h2 style={h2s}>5. 3D 시뮬레이션 스냅샷</h2>
-              {imageUrl ? (
-                <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
-                  <img
-                    src={imageUrl}
-                    alt="3D Simulation"
-                    style={{ width: 340, borderRadius: 4, border: "1px solid #ddd" }}
-                  />
-                  <div style={{ fontSize: 11, color: "#555", lineHeight: 1.8 }}>
-                    <div><strong>시험 종류:</strong> {testName}</div>
-                    <div><strong>최대 변형률:</strong> {maxStrain.toFixed(1)}%</div>
-                    <div><strong>재료 상태:</strong> {maxStrain < 2 ? "탄성" : maxStrain < 8 ? "소성 변형" : "파단"}</div>
-                    {simulation?.result && <>
-                      <div><strong>최대 응력:</strong> {simulation.result.maxStressMpa?.toFixed(0)} MPa</div>
-                      <div><strong>파손 위험:</strong> {simulation.result.failureRisk}</div>
-                      <div><strong>안전 지수:</strong> {simulation.result.safetyIndex?.toFixed(1)}</div>
-                    </>}
-                  </div>
-                </div>
-              ) : (
-                <div style={{ fontSize: 11, color: "#999", padding: 16, background: "#f8f8f8",
-                  borderRadius: 4, textAlign: "center" }}>
-                  시뮬레이션 실행 후 보고서를 다시 생성하면 이미지가 포함됩니다.
-                </div>
-              )}
-            </section>
-
-            {/* ── 6. 응력 분포 분석 ── */}
-            <section style={sec}>
-              <h2 style={h2s}>6. 응력 분포 분석</h2>
-              <table style={tbl}>
-                <thead><tr>
-                  <th style={th}>항목</th>
-                  <th style={{ ...th, textAlign: "right" }}>값</th>
-                  <th style={th}>의미</th>
-                </tr></thead>
-                <tbody>
-                  <tr>
-                    <td style={td}>최대 등가 응력</td>
-                    <td style={tdR}>{(simulation?.result?.maxStressMpa ?? UTS).toFixed(0)} MPa</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>시편 내부에서 응력이 가장 크게 집중된 지점의 등가 응력값 — 3D 응력 상태를 하나의 숫자로 표현</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>항복 응력 (YS)</td>
-                    <td style={tdR}>{YS.toFixed(0)} MPa</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>이 값을 초과하는 응력이 가해지면 재료가 영구 변형됨</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>안전계수 (SF)</td>
-                    <td style={{ ...tdR, fontWeight: 700, color: safetyFactor >= 1.5 ? "#217a3c" : safetyFactor >= 1.0 ? "#b45309" : "#c0392b" }}>
-                      {typeof safetyFactor === "number" ? safetyFactor.toFixed(2) : "—"} {safetyFactor < 1.0 ? "⚠ 항복 초과" : safetyFactor < 1.5 ? "(주의)" : "(안전)"}
-                    </td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>항복응력 ÷ 최대응력. 1.0 미만이면 이미 소성 변형 중, 1.5 이상이면 안전한 설계</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>컬러맵 색상 의미</td>
-                    <td style={{ ...td, textAlign: "right" }}>
-                      <span style={{ color: "#0000ff" }}>■</span> → <span style={{ color: "#00bb44" }}>■</span> → <span style={{ color: "#ff0000" }}>■</span>
-                    </td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>파란색: 응력 낮음 (안전) / 초록색: 중간 / 빨간색: 응력 높음 (위험)</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>시험 방식에 따른 분포</td>
-                    <td style={{ ...td, textAlign: "right", fontSize: 10 }}>{activeTest === "bending" ? "굽힘" : "인장"}</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>
-                      {activeTest === "bending"
-                        ? "굽힘 시험: 위아래 표면에서 응력 최대, 중앙 중립면에서 0 — 표면 결함이 파단을 지배함"
-                        : "인장 시험: 게이지 중앙에서 응력 집중, 넥킹 시 단면 급감으로 응력 급등"}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </section>
-
-            {/* ── 7. 파단 분석 ── */}
-            <section style={sec}>
-              <h2 style={h2s}>7. 파단 분석</h2>
-              <table style={tbl}>
-                <thead><tr>
-                  <th style={th}>항목</th>
-                  <th style={{ ...th, textAlign: "right" }}>값</th>
-                  <th style={th}>의미</th>
-                </tr></thead>
-                <tbody>
-                  <tr>
-                    <td style={td}>파단 유형</td>
-                    <td style={{ ...tdR, fontWeight: 700, color: fracture.type === "brittle" ? "#c0392b" : "#217a3c" }}>{fracture.korean}</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>
-                      {fracture.type === "ductile" ? "끊어지기 전에 눈에 띄게 늘어남 — 사전 경고가 있어 비교적 안전한 파단" :
-                       fracture.type === "brittle" ? "거의 변형 없이 갑자기 파단 — 위험한 파단 방식, 충격에 취약" :
-                       "연성과 취성이 혼합된 중간 형태"}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style={td}>파면 형상</td>
-                    <td style={tdR}>{fracture.morphology}</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>
-                      {fracture.type === "ductile" ? "컵-앤드-콘 (cup-and-cone): 중앙 섬유상 + 가장자리 45° 전단면" :
-                       "평탄하고 결정면을 따라 쪼개지는 벽개면 (cleavage)"}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style={td}>파단 각도</td>
-                    <td style={tdR}>{fracture.angle}°</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>최대 전단응력 방향. 45°에 가까울수록 전단에 의한 연성 파단, 90°면 취성 파단</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>파괴인성 (KIC)</td>
-                    <td style={tdR}>{KIC} MPa·√m</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>균열이 있을 때 버티는 능력. 낮으면 작은 균열도 갑자기 성장해 파단 유발</td>
-                  </tr>
-                </tbody>
-              </table>
-            </section>
-
-            {/* ── 8. 신뢰도 및 모델 정보 ── */}
-            <section style={{ ...sec, marginBottom: 0 }}>
-              <h2 style={h2s}>8. 예측 신뢰도</h2>
-              <table style={{ ...tbl, width: "70%" }}>
-                <thead><tr>
-                  <th style={th}>항목</th>
-                  <th style={{ ...th, textAlign: "right" }}>값</th>
-                  <th style={th}>의미</th>
-                </tr></thead>
-                <tbody>
-                  <tr>
-                    <td style={td}>예측 신뢰도</td>
-                    <td style={{ ...tdR, fontWeight: 700, color: (prediction?.predictionConfidence ?? 0) > 90 ? "#217a3c" : "#b45309" }}>
-                      {prediction?.predictionConfidence?.toFixed(1) ?? "—"} %
-                    </td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>예측 모델이 이 조성을 얼마나 잘 학습했는지. 90% 이상이면 신뢰도 높음</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>격자 안정성</td>
-                    <td style={tdR}>{prediction?.latticeStability?.toFixed(1) ?? "—"} %</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>결정 구조가 얼마나 안정적으로 유지될지 예측. 낮으면 상 분리나 취화 위험</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>예측 모델</td>
-                    <td style={{ ...td, textAlign: "right" }}>{prediction?.predictionSource ? "플랫폼 예측 모델" : "로컬 모델"}</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>예측에 사용된 엔진 — 플랫폼 모델은 실험 데이터 학습 기반, 로컬은 조성 비율 기반 추정</td>
-                  </tr>
-                  <tr>
-                    <td style={td}>혼합 엔트로피 (ΔSmix)</td>
-                    <td style={tdR}>{Smix.toFixed(2)} J/mol·K</td>
-                    <td style={{ ...td, fontSize: 10, color: "#555" }}>원소가 골고루 섞일수록 높아짐. 11 J/mol·K 이상이면 고엔트로피 합금(HEA)으로 분류</td>
-                  </tr>
-                </tbody>
-              </table>
-              <div style={{ marginTop: 12, padding: "8px 12px", background: "#f8f7f5", borderLeft: "3px solid #1a5fa8", fontSize: 10, color: "#666", lineHeight: 1.6 }}>
-                본 보고서는 디지털 트윈 시뮬레이션으로 자동 생성된 예측값입니다. 실제 제조·가공 조건에 따라 결과가 달라질 수 있으며, 설계 적용 전 실측 시험을 권장합니다.
-              </div>
-            </section>
-          </div>
+              {rendered}
+            </div>
+          )}
         </div>
       </div>
     </>,

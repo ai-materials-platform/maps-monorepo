@@ -632,7 +632,17 @@ ipcMain.handle('integration:startSimulationApp', async () => {
       webPreferences: { contextIsolation: true, nodeIntegration: false }
     });
     simulationWindow.loadURL('http://127.0.0.1:5173');
-    simulationWindow.on('closed', () => { simulationWindow = null; });
+    simulationWindow.on('closed', () => {
+      simulationWindow = null;
+      // 시뮬레이션 창을 닫으면 숨겨둔 shell 대시보드를 다시 앞으로
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      } catch (_) {}
+    });
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
     logService('simulation-app', 'opened simulation window at http://127.0.0.1:5173');
   } else {

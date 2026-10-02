@@ -33,8 +33,9 @@ import {
   Zap
 } from "lucide-react";
 import * as THREE from "three";
-import { generateStressStrainCurve, vonMisesAtVertex, vonMisesBending, predictPhases } from "./lib/physics.js";
+import { generateStressStrainCurve, vonMisesAtVertex, vonMisesBending, predictPhases, classifyFracture } from "./lib/physics.js";
 import ReportModal from "./components/ReportModal.jsx";
+import LatticeViewer from "./components/LatticeViewer.jsx";
 
 const TESTS = [
   { id: "strength",    label: "강도",   icon: Gauge,        specimenOnly: true  },
@@ -552,6 +553,7 @@ function App() {
   });
   const [showReport, setShowReport] = useState(false);
   const [reportImageUrl, setReportImageUrl] = useState(null);
+  const [showLattice, setShowLattice] = useState(false);
   const [newAlloyDialog, setNewAlloyDialog] = useState(false);
   const [newAlloyName, setNewAlloyName] = useState("");
   const didInitialPrediction = useRef(false);
@@ -562,6 +564,18 @@ function App() {
     generateStressStrainCurve(prediction, 14),
     [prediction.strengthMpa, prediction.yieldStressMpa, prediction.elasticityGpa, prediction.elongationPercent]
   );
+  // 상·결정구조 + Schaeffler 판정 (physics.js predictPhases 확장)
+  const phaseInfo = useMemo(() =>
+    predictPhases(composition ?? {}),
+    [composition]
+  );
+  // 재질별 파단 모드: 연성→컵앤콘, 취성→벽개. BCT 주상이면 한 단계 취성 쪽으로.
+  const fractureMode = useMemo(() => {
+    const f = classifyFracture(prediction.elongationPercent, prediction.areaReductionPercent);
+    let m = f.type;
+    if (phaseInfo.schaeffler?.dominantCrystal === "BCT" && m === "mixed") m = "brittle";
+    return m;
+  }, [prediction.elongationPercent, prediction.areaReductionPercent, phaseInfo]);
   // 기존 컴포넌트 호환: 정규화 0-100 값 배열
   const stressStrainPoints = useMemo(() =>
     stressStrainCurveData.map(p => p.normStress),
@@ -1072,6 +1086,14 @@ function App() {
           onClose={() => setShowReport(false)}
         />
       )}
+      {showLattice && (
+        <LatticeViewer
+          composition={composition}
+          dominantPhase={phaseInfo.schaeffler?.dominantPhase}
+          dominantCrystal={phaseInfo.schaeffler?.dominantCrystal}
+          onClose={() => setShowLattice(false)}
+        />
+      )}
 
       <header className="top-bar panel">
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1300,7 +1322,7 @@ function App() {
               ["cube", "정육면체"],
               ["box", "직육면체"]
             ].map(([id, label]) => (
-              <button key={id} className={shape === id ? "active" : ""} onClick={() => setShape(id)}>{label}</button>
+              <button key={id} className={shape === id ? "active" : ""} onClick={() => { handleReset(); setShape(id); }}>{label}</button>
             ))}
             <span className="toolbar-sep" />
             <button
@@ -1339,6 +1361,7 @@ function App() {
                 playing={playing}
                 playhead={playhead}
                 testTemp={testTemp}
+                fractureMode={fractureMode}
               />
             </Canvas>
 
@@ -1465,6 +1488,58 @@ function App() {
             <Metric label="단면 수축률" value={`${prediction.areaReductionPercent != null ? prediction.areaReductionPercent : "-"} %`} />
           </div>
 
+          <section className="analytics-card">
+            <SectionTitle icon={Layers3} title="상 · 결정구조 (Schaeffler)" />
+            <div style={{ fontSize: 11, fontFamily: "var(--mono)", lineHeight: 1.7 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "var(--text-muted)" }}>Ni 당량</span>
+                <strong>{phaseInfo.Ni_eq ?? phaseInfo.NiEq}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "var(--text-muted)" }}>Cr 당량</span>
+                <strong>{phaseInfo.Cr_eq ?? phaseInfo.CrEq}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "var(--text-muted)" }}>WRC-1992</span>
+                <strong>Cr {phaseInfo.WRC_Cr_eq} / Ni {phaseInfo.WRC_Ni_eq}</strong>
+              </div>
+              <div style={{
+                marginTop: 6, padding: "6px 8px", borderRadius: 4,
+                background: "#EEF6FF", border: "1px solid #BFDBFE",
+                fontSize: 11, lineHeight: 1.5
+              }}>
+                <strong>{phaseInfo.schaeffler?.zone} · {phaseInfo.schaeffler?.zoneKo}</strong>
+                <div style={{ color: "#475569", fontSize: 10, marginTop: 2 }}>
+                  {phaseInfo.schaeffler?.description}
+                </div>
+                <div style={{ color: "#475569", fontSize: 10, marginTop: 2 }}>
+                  주상: {phaseInfo.schaeffler?.dominantPhase} ({phaseInfo.schaeffler?.dominantCrystal})
+                </div>
+              </div>
+              <div style={{ display: "flex", height: 10, borderRadius: 3, overflow: "hidden", margin: "8px 0 4px" }}>
+                <div style={{ width: `${phaseInfo.austenite}%`, background: "#1a5fa8" }} title={`오스테나이트 γ-FCC: ${phaseInfo.austenite}%`} />
+                <div style={{ width: `${phaseInfo.ferrite}%`, background: "#217a3c" }} title={`페라이트 α-BCC: ${phaseInfo.ferrite}%`} />
+                <div style={{ width: `${phaseInfo.martensite}%`, background: "#c0392b" }} title={`마르텐사이트 α'-BCT: ${phaseInfo.martensite}%`} />
+              </div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                γ-FCC {phaseInfo.austenite}% · α-BCC {phaseInfo.ferrite}% · α'-BCT {phaseInfo.martensite}%
+              </div>
+              <button
+                className="command primary"
+                style={{ width: "100%", marginTop: 6, justifyContent: "center" }}
+                onClick={() => setShowLattice(true)}
+              >
+                <Boxes size={14} style={{ marginRight: 5 }} />
+                격자 뷰어
+              </button>
+              {phaseInfo.schaeffler?.lowAlloy && (
+                <div style={{ fontSize: 10, color: "#b45309", marginTop: 4 }}>
+                  저합금 조성이라 Schaeffler 판정은 참고용입니다.
+                </div>
+              )}
+            </div>
+          </section>
+
           {compareMode && alloys.length > 1 && (
             <section className="analytics-card">
               <SectionTitle icon={BarChart3} title="합금 비교 (상위 3개)" />
@@ -1529,7 +1604,7 @@ function App() {
   );
 }
 
-function AlloyScene({ alloys, selectedId, mode, activeTest, prediction, simulation, shape, interactMode, orbitEnabledRef, onSelectId, resetKey, onDeformStats, playing, playhead, testTemp }) {
+function AlloyScene({ alloys, selectedId, mode, activeTest, prediction, simulation, shape, interactMode, orbitEnabledRef, onSelectId, resetKey, onDeformStats, playing, playhead, testTemp, fractureMode }) {
   return (
     <group>
       <CameraControls orbitEnabledRef={orbitEnabledRef} resetKey={resetKey} />
@@ -1553,6 +1628,7 @@ function AlloyScene({ alloys, selectedId, mode, activeTest, prediction, simulati
           playing={playing}
           playhead={playhead}
           testTemp={testTemp}
+          fractureMode={fractureMode}
         />
       ))}
     </group>
@@ -1589,7 +1665,7 @@ function CameraControls({ orbitEnabledRef, resetKey }) {
   return null;
 }
 
-function AlloyModel({ alloy, selected, mode, activeTest, prediction, simulation, offset, shape, interactMode, orbitEnabledRef, onSelect, resetKey, onDeformStats, playing, playhead, testTemp }) {
+function AlloyModel({ alloy, selected, mode, activeTest, prediction, simulation, offset, shape, interactMode, orbitEnabledRef, onSelect, resetKey, onDeformStats, playing, playhead, testTemp, fractureMode }) {
   const group = useRef();
   const [deform, setDeform] = useState({ x: 1, y: 1, z: 1 });
   const [fractured, setFractured] = useState(false);
@@ -1714,6 +1790,7 @@ function AlloyModel({ alloy, selected, mode, activeTest, prediction, simulation,
             playing={playing}
             playhead={playhead}
             prediction={prediction}
+            fractureMode={fractureMode}
             externalBendPull={activeTest === "bending" ? effectiveBendPull : null}
             onBendPullSync={setBendPull}
           />
@@ -1742,6 +1819,8 @@ function AlloyModel({ alloy, selected, mode, activeTest, prediction, simulation,
         onDeformStats={onDeformStats}
         elasticityGpa={prediction.elasticityGpa}
         strengthMpa={prediction.strengthMpa}
+        elongationPercent={prediction.elongationPercent}
+        fractureMode={fractureMode}
       />
     </group>
   );
@@ -1826,7 +1905,7 @@ function HeatParticles({ active, intensity }) {
 // Physically based: fibrous dimple-rupture center + 45° shear lip outer zone
 // isTopPiece=true  → upper fragment (cup  surface faces down)
 // isTopPiece=false → lower fragment (cone surface faces up)
-function buildSpecimenFractureGeo(deformedArr, srcGeo, isTopPiece, neckY = 0) {
+function buildSpecimenFractureGeo(deformedArr, srcGeo, isTopPiece, neckY = 0, mode = "ductile") {
   const geo = srcGeo.clone();
   const pos = geo.attributes.position;
   const col = geo.attributes.color;
@@ -1847,9 +1926,10 @@ function buildSpecimenFractureGeo(deformedArr, srcGeo, isTopPiece, neckY = 0) {
   // After severe necking at fracture, gauge radius is ~44% of original (0.295 → ≈0.13)
   // Use 0.145 to include a thin shoulder of transition vertices
   const neckR     = 0.145;
-  const fiberFrac = 0.58;  // inner 58% of radius = fibrous dimple zone
+  // 재질별 파면: 취성은 벽개 평면 (섬유존 전면 + 전단립 제거), 혼합은 중간
+  const fiberFrac = mode === "brittle" ? 0.97 : mode === "mixed" ? 0.78 : 0.58;  // inner 58% of radius = fibrous dimple zone
   // Shear lip occupies outer 42% → 45° slope width ≈ neckR*(1-fiberFrac) = 0.061
-  const shearDepthMax = neckR * (1.0 - fiberFrac); // ≈0.061, true 45° geometry
+  const shearDepthMax = neckR * (1.0 - fiberFrac) * (mode === "brittle" ? 0.15 : 1.0); // ≈0.061, true 45° geometry
 
   // Slight tilt + low-frequency wave: asymmetric crack propagation, not a perfect flat cut
   // Both pieces share the same fracture plane so they interlock
@@ -1969,7 +2049,14 @@ function buildSpecimenFractureGeo(deformedArr, srcGeo, isTopPiece, neckY = 0) {
     const rx = pos.array[i*3], rz = pos.array[i*3+2];
     const rLoc = Math.min(1.0, Math.sqrt(rx*rx + rz*rz) / neckR);
     if (col) {
-      if (rLoc <= fiberFrac) {
+      if (mode === "brittle") {
+        // Cleavage: bright cold-silver facets across the whole face
+        const facet = srand(i * 13 + 7) * 0.14;
+        const bright = 0.74 + facet;
+        col.array[i*3]   = bright - 0.02;
+        col.array[i*3+1] = bright;
+        col.array[i*3+2] = bright + 0.05;
+      } else if (rLoc <= fiberFrac) {
         // Fibrous dimple zone: dark matte grey (micro-void coalescence surface)
         // Slight speckling from individual dimple facets
         const dimple = srand(i * 7 + 3) * 0.20;
@@ -1995,7 +2082,7 @@ function buildSpecimenFractureGeo(deformedArr, srcGeo, isTopPiece, neckY = 0) {
   return geo;
 }
 
-function buildBendingFractureGeo(deformedArr, srcGeo, keepPositiveSide) {
+function buildBendingFractureGeo(deformedArr, srcGeo, keepPositiveSide, mode = "ductile") {
   const geo = srcGeo.clone();
   const pos = geo.attributes.position;
   const col = geo.attributes.color;
@@ -2039,7 +2126,9 @@ function buildBendingFractureGeo(deformedArr, srcGeo, keepPositiveSide) {
   localRadiusX = Math.max(0.010, localRadiusX);
   localRadiusZ = Math.max(0.010, localRadiusZ);
   const localRadius = Math.max(localRadiusX, localRadiusZ);
-  const maxRelief = Math.min(localRadius * 0.07, 0.016);
+  // 취성 굽힘 파단은 평평한 벽개 (릴리프 축소)
+  const reliefK = mode === "brittle" ? 0.30 : mode === "mixed" ? 0.65 : 1.0;
+  const maxRelief = Math.min(localRadius * 0.07, 0.016) * reliefK;
   const edgeBand = Math.max(localRadius * 0.18, 0.018);
 
   for (let i = 0; i < pos.count; i++) {
@@ -2119,7 +2208,7 @@ function buildBendingFractureGeo(deformedArr, srcGeo, keepPositiveSide) {
   return geo;
 }
 
-function DeformableMesh({ mode, activeTest, scale, interactMode, orbitEnabledRef, onSelect, resetKey, onDeformStats, playing, playhead, prediction, externalBendPull = null, onBendPullSync }) {
+function DeformableMesh({ mode, activeTest, scale, interactMode, orbitEnabledRef, onSelect, resetKey, onDeformStats, playing, playhead, prediction, fractureMode, externalBendPull = null, onBendPullSync }) {
   const meshRef = useRef();
   const fractureRef  = useRef(false);
   const totalPullRef = useRef(0);
@@ -2422,8 +2511,8 @@ function DeformableMesh({ mode, activeTest, scale, interactMode, orbitEnabledRef
     const snapshot = new Float32Array(meshRef.current.geometry.attributes.position.array);
 
     if (activeTest === "bending") {
-      const rightGeo = buildBendingFractureGeo(snapshot, geometry, true);
-      const leftGeo = buildBendingFractureGeo(snapshot, geometry, false);
+      const rightGeo = buildBendingFractureGeo(snapshot, geometry, true, fractureMode ?? "ductile");
+      const leftGeo = buildBendingFractureGeo(snapshot, geometry, false, fractureMode ?? "ductile");
       setFractureState({ topGeo: rightGeo, botGeo: leftGeo, bending: true });
       return;
     }
@@ -2435,8 +2524,8 @@ function DeformableMesh({ mode, activeTest, scale, interactMode, orbitEnabledRef
     const bottomAxial = ringData.cumulAxMult[0] * pullScale; // negative value
     const neckY       = -bottomAxial;                        // gauge centre's new Y
 
-    const topGeo = buildSpecimenFractureGeo(snapshot, geometry, true,  neckY);
-    const botGeo = buildSpecimenFractureGeo(snapshot, geometry, false, neckY);
+    const topGeo = buildSpecimenFractureGeo(snapshot, geometry, true,  neckY, fractureMode ?? "ductile");
+    const botGeo = buildSpecimenFractureGeo(snapshot, geometry, false, neckY, fractureMode ?? "ductile");
     setFractureState({ topGeo, botGeo });
   }
 
@@ -2573,9 +2662,18 @@ function DeformableMesh({ mode, activeTest, scale, interactMode, orbitEnabledRef
   );
 }
 
-function buildTornGeometry(deformedArr, srcGeo, grabPt, pullNormal, keepOnPullSide) {
+function buildTornGeometry(deformedArr, srcGeo, grabPt, pullNormal, keepOnPullSide, refSize = 1.0, mode = "ductile") {
   const geo = srcGeo.clone();
   const pos = geo.attributes.position;
+  const col = geo.attributes.color;
+  // 재질별 파면: 연성=컵앤콘 깊게, 혼합=절반, 취성=평평한 벽개 (미세 요철만)
+  const cupK = mode === "brittle" ? 0.08 : mode === "mixed" ? 0.45 : 1.0;
+  // 형상 비례 스케일 + 컵-앤-콘 릴리프 (밋밋한 원반 artifact 방지)
+  const R = Math.max(refSize * 0.9, 0.05);
+  const kRough = Math.max(0.006, refSize * (mode === "brittle" ? 0.008 : 0.016));
+  const cupDepth = Math.max(0.008, refSize * 0.055) * cupK;
+  const falloff = 5.0 / Math.max(refSize, 0.2);
+  const sgn = keepOnPullSide ? 1 : -1;
   // Build perpendicular tangent basis for tear noise
   let ax = 0, ay = 1, az = 0;
   if (Math.abs(pullNormal.y) > 0.9) { ax = 1; ay = 0; az = 0; }
@@ -2588,10 +2686,15 @@ function buildTornGeometry(deformedArr, srcGeo, grabPt, pullNormal, keepOnPullSi
   const t2y = pullNormal.z * t1x - pullNormal.x * t1z;
   const t2z = pullNormal.x * t1y - pullNormal.y * t1x;
 
-  // Seeded pseudo-random: same result for top & bottom pieces → matching tear surfaces
-  function seededRand(seed) {
-    const s = (Math.sin(seed * 127.1 + 311.7) * 43758.5453);
+  // Seeded + FBM — 양쪽 조각이 같은 시드 → 맞물리는 파면
+  function srand(seed) {
+    const s = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
     return s - Math.floor(s);
+  }
+  function fbm(i, scale) {
+    return (srand(i * scale + 1) - 0.5)
+         + (srand(i * scale * 2.17 + 19) - 0.5) * 0.45
+         + (srand(i * scale * 4.73 + 53) - 0.5) * 0.18;
   }
 
   for (let i = 0; i < pos.count; i++) {
@@ -2600,24 +2703,64 @@ function buildTornGeometry(deformedArr, srcGeo, grabPt, pullNormal, keepOnPullSi
     const dot = (ox - grabPt.x) * pullNormal.x + (oy - grabPt.y) * pullNormal.y + (oz - grabPt.z) * pullNormal.z;
     const onPullSide = dot >= 0;
     if (onPullSide === keepOnPullSide) {
-      pos.array[i * 3]     = ox;
-      pos.array[i * 3 + 1] = oy;
-      pos.array[i * 3 + 2] = oz;
+      // 유지측: 파단면 근처 정점의 법선 좌표를 해석적 dish로 강제 고정.
+      // 스냅샷 굴곡(뿔)이 남지 않도록 목표면에 블렌딩한다.
+      const nearFrac = Math.exp(-Math.abs(dot) * falloff);
+      const px = ox - grabPt.x, py = oy - grabPt.y, pz = oz - grabPt.z;
+      const dn = px * pullNormal.x + py * pullNormal.y + pz * pullNormal.z;
+      const ix = px - dn * pullNormal.x, iy = py - dn * pullNormal.y, iz = pz - dn * pullNormal.z;
+      const rN = Math.min(1, Math.sqrt(ix * ix + iy * iy + iz * iz) / R);
+      // 컵: 중심이 재료 안쪽으로 오목 (sgn 부호로 양쪽 조각 대칭). 립: 가장자리 전단면이 바깥으로 경사.
+      const cup = (1 - rN * rN) * cupDepth;
+      const lipT = Math.max(0, (rN - 0.55) / 0.45);
+      const lip = lipT * lipT * cupDepth * 0.9;
+      const w = nearFrac;
+      const target = (cup - lip) * sgn;
+      const shift = (target - dot) * w;
+      const rough = fbm(i, 37.7) * kRough * w;
+      pos.array[i * 3]     = ox + (shift + rough * sgn) * pullNormal.x;
+      pos.array[i * 3 + 1] = oy + (shift + rough * sgn) * pullNormal.y;
+      pos.array[i * 3 + 2] = oz + (shift + rough * sgn) * pullNormal.z;
     } else {
-      const dist = Math.abs(dot);
-      // Exponential fade: the farther from the fracture plane, the less distortion
-      const fade = Math.exp(-dist * 2.2);
-      // Deterministic noise per vertex index — both pieces share same noise → matching surfaces
-      const noiseAlong = (keepOnPullSide ? 1 : -1) * seededRand(i * 3)     * 0.14 * fade;
-      const noiseP1    = (seededRand(i * 7 + 1) - 0.5) * 0.45 * fade;
-      const noiseP2    = (seededRand(i * 13 + 2) - 0.5) * 0.45 * fade;
-      // Project vertex to fracture plane, then add directional noise
-      pos.array[i * 3]     = (ox - dot * pullNormal.x) + noiseAlong * pullNormal.x + noiseP1 * t1x + noiseP2 * t2x;
-      pos.array[i * 3 + 1] = (oy - dot * pullNormal.y) + noiseAlong * pullNormal.y + noiseP1 * t1y + noiseP2 * t2y;
-      pos.array[i * 3 + 2] = (oz - dot * pullNormal.z) + noiseAlong * pullNormal.z + noiseP1 * t1z + noiseP2 * t2z;
+      // 버리는 측: 파단면 투영 후 면내 중심으로 수축 → 퇴화삼각형 (안 보임)
+      const px = (ox - dot * pullNormal.x - grabPt.x) * 0.03 + grabPt.x;
+      const py = (oy - dot * pullNormal.y - grabPt.y) * 0.03 + grabPt.y;
+      const pz = (oz - dot * pullNormal.z - grabPt.z) * 0.03 + grabPt.z;
+      const rough = fbm(i, 37.7) * kRough * 0.3;
+      pos.array[i * 3]     = px + rough * sgn * pullNormal.x;
+      pos.array[i * 3 + 1] = py + rough * sgn * pullNormal.y;
+      pos.array[i * 3 + 2] = pz + rough * sgn * pullNormal.z;
+    }
+
+    // 파면 착색: 연성=중심 섬유상 암회색 → 가장자리 은회색 / 취성=밝은 벽개 결정면
+    if (col) {
+      const qx = pos.array[i * 3] - grabPt.x, qy = pos.array[i * 3 + 1] - grabPt.y, qz = pos.array[i * 3 + 2] - grabPt.z;
+      const qd = qx * pullNormal.x + qy * pullNormal.y + qz * pullNormal.z;
+      const jx = qx - qd * pullNormal.x, jy = qy - qd * pullNormal.y, jz = qz - qd * pullNormal.z;
+      const rLoc = Math.min(1, Math.sqrt(jx * jx + jy * jy + jz * jz) / R);
+      const nearFrac = Math.exp(-Math.abs(qd) * falloff);
+      const blend = Math.min(0.9, nearFrac * (onPullSide === keepOnPullSide ? 0.95 : 0.4));
+      let fr, fg, fb;
+      if (mode === "brittle") {
+        // 벽개면: 밝은 청은회색 + 결정립 반사 반점
+        const facet = srand(i * 13 + 7);
+        const bright = 0.74 + facet * 0.14;
+        fr = bright - 0.02; fg = bright; fb = bright + 0.05;
+      } else if (rLoc <= 0.58) {
+        const dimple = srand(i * 7 + 3) * 0.16;
+        fr = 0.40 + dimple; fg = 0.39 + dimple; fb = 0.42 + dimple;
+      } else {
+        const t = (rLoc - 0.58) / 0.42;
+        const bright = 0.66 + t * 0.22;
+        fr = bright; fg = bright + 0.005; fb = bright + 0.04;
+      }
+      col.array[i * 3]     = col.array[i * 3]     * (1 - blend) + fr * blend;
+      col.array[i * 3 + 1] = col.array[i * 3 + 1] * (1 - blend) + fg * blend;
+      col.array[i * 3 + 2] = col.array[i * 3 + 2] * (1 - blend) + fb * blend;
     }
   }
   pos.needsUpdate = true;
+  if (col) col.needsUpdate = true;
   geo.computeVertexNormals();
   return geo;
 }
@@ -2692,7 +2835,7 @@ function buildAutoGrabs(activeTest, t, elasticityGpa, strengthMpa, geoDims) {
   return [];
 }
 
-function DeformableShape({ shape, mode, scale, testScale, activeTest, interactMode, orbitEnabledRef, onSelect, resetKey, matProps, playing, playhead, testTemp, meltingPoint, onDeformStats, elasticityGpa, strengthMpa }) {
+function DeformableShape({ shape, mode, scale, testScale, activeTest, interactMode, orbitEnabledRef, onSelect, resetKey, matProps, playing, playhead, testTemp, meltingPoint, onDeformStats, elasticityGpa, strengthMpa, elongationPercent, fractureMode }) {
   const meshRef = useRef();
   const grabsRef = useRef([]);
   const fractureRef = useRef(false);
@@ -2734,13 +2877,18 @@ function DeformableShape({ shape, mode, scale, testScale, activeTest, interactMo
     return 0.85;
   }, [activeTest, shape]);
 
-  // Per-test fracture displacement threshold
+  // Per-test fracture displacement threshold (재료 보정: 고강도·저연성일수록 일찍 파단)
   const fractureThreshold = useMemo(() => {
-    if (activeTest === "bending") return 0.65;   // 3pt bending: cracks at moderate deflection
-    if (activeTest === "strength") return 0.9;   // axial tension: necks then snaps
-    if (activeTest === "elongation") return 1.6; // ductile elongation: stretches a lot before tearing
+    const UTS = Math.max(300, strengthMpa ?? 800);
+    const elong = Math.max(2, elongationPercent ?? 14);
+    const strengthK = Math.max(0.55, Math.min(1.35, Math.pow(900 / UTS, 0.30)));
+    const ductileK = Math.max(0.55, Math.min(1.40, Math.pow(elong / 14, 0.35)));
+    const matK = strengthK * ductileK;
+    if (activeTest === "bending") return 0.65 * matK;   // 3pt bending: cracks at moderate deflection
+    if (activeTest === "strength") return 0.9 * matK;   // axial tension: necks then snaps
+    if (activeTest === "elongation") return 1.6 * matK; // ductile elongation: stretches a lot before tearing
     return 1.38;
-  }, [activeTest]);
+  }, [activeTest, strengthMpa, elongationPercent]);
 
   function resetAll() {
     fractureRef.current = false;
@@ -2800,16 +2948,32 @@ function DeformableShape({ shape, mode, scale, testScale, activeTest, interactMo
       for (const g of pulls) totalDx += g.dx;
       const strainFactor = totalDx / Math.max(0.01, geoDims.halfW);
       const poisson = 0.30;
+      // 색 누적 방지: 매 프레임 기본색으로 리셋 후 균열열만 덧칠
+      if (col) {
+        for (let i = 0; i < pos.count; i++) {
+          col.array[i * 3] = 0.82; col.array[i * 3 + 1] = 0.84; col.array[i * 3 + 2] = 0.88;
+        }
+      }
+      // 균열 개시 단계: 파단 임계 70→100% 구간에서 파단면(x=0) 중심으로 노치 패임 + 암적색 예열
+      const crackT = smooth01((Math.abs(totalDx) - fractureThreshold * 0.70) / Math.max(0.01, fractureThreshold * 0.30));
       for (let i = 0; i < pos.count; i++) {
         const bx = basePositions[i * 3], by = basePositions[i * 3 + 1], bz = basePositions[i * 3 + 2];
         const axialDisp = strainFactor * bx;            // X elongates
         const neckProfile = Math.exp(-(bx ** 2) * 2.4); // necking strongest at x=0 waist
         const radialContraction = -poisson * Math.abs(strainFactor) * neckProfile * 1.6;
+        const crackPinch = 1 - 0.28 * crackT * Math.exp(-(bx ** 2) * 9.0);
         pos.array[i * 3]     = bx + axialDisp;          // X stretches
-        pos.array[i * 3 + 1] = by * (1 + radialContraction); // Y contracts (Poisson)
-        pos.array[i * 3 + 2] = bz * (1 + radialContraction); // Z contracts (Poisson)
+        pos.array[i * 3 + 1] = by * (1 + radialContraction) * crackPinch; // Y contracts (Poisson)
+        pos.array[i * 3 + 2] = bz * (1 + radialContraction) * crackPinch; // Z contracts (Poisson)
         if (Math.abs(axialDisp) > maxDisp) maxDisp = Math.abs(axialDisp);
+        if (col && crackT > 0.01) {
+          const heat = Math.min(0.85, crackT * neckProfile * 1.2);
+          col.array[i * 3]     = col.array[i * 3]     * (1 - heat) + 0.55 * heat;
+          col.array[i * 3 + 1] = col.array[i * 3 + 1] * (1 - heat) + 0.12 * heat;
+          col.array[i * 3 + 2] = col.array[i * 3 + 2] * (1 - heat) + 0.10 * heat;
+        }
       }
+      if (col && crackT > 0.01) col.needsUpdate = true;
     } else if (activeTest === "bending") {
       // 3-point bending: smooth simply-supported beam-like curve from original positions only.
       let totalPush = 0;
@@ -2836,6 +3000,15 @@ function DeformableShape({ shape, mode, scale, testScale, activeTest, interactMo
       }
     } else if (activeTest === "elongation") {
       // Ductile elongation: free-form Gaussian + Poisson lateral contraction (ν≈0.30)
+      // 균열 개시: 허리(y=0)부터 조임 + 암적색 예열 (파단 임계 70→100% 구간)
+      let pullMag = 0;
+      for (const g of pulls) pullMag += Math.sqrt(g.dx * g.dx + g.dy * g.dy + g.dz * g.dz);
+      const crackT = smooth01((pullMag - fractureThreshold * 0.70) / Math.max(0.01, fractureThreshold * 0.30));
+      if (col && crackT > 0.01) {
+        for (let i = 0; i < pos.count; i++) {
+          col.array[i * 3] = 0.82; col.array[i * 3 + 1] = 0.84; col.array[i * 3 + 2] = 0.88;
+        }
+      }
       for (let i = 0; i < pos.count; i++) {
         const bx = basePositions[i * 3], by = basePositions[i * 3 + 1], bz = basePositions[i * 3 + 2];
         let dx = 0, dy = 0, dz = 0;
@@ -2846,11 +3019,19 @@ function DeformableShape({ shape, mode, scale, testScale, activeTest, interactMo
         }
         const dispMag = Math.sqrt(dx * dx + dy * dy + dz * dz);
         const lateralContraction = -0.30 * dispMag / Math.max(0.1, geoDims.halfH) * 0.6;
-        pos.array[i * 3]     = bx * (1 + lateralContraction) + dx;
+        const crackPinch = 1 - 0.30 * crackT * Math.exp(-(by * by) * 3.0);
+        pos.array[i * 3]     = bx * (1 + lateralContraction) * crackPinch + dx;
         pos.array[i * 3 + 1] = by + dy;
-        pos.array[i * 3 + 2] = bz * (1 + lateralContraction) + dz;
+        pos.array[i * 3 + 2] = bz * (1 + lateralContraction) * crackPinch + dz;
         if (dispMag > maxDisp) maxDisp = dispMag;
+        if (col && crackT > 0.01) {
+          const heat = Math.min(0.85, crackT * Math.exp(-(by * by) * 3.0));
+          col.array[i * 3]     = col.array[i * 3]     * (1 - heat) + 0.55 * heat;
+          col.array[i * 3 + 1] = col.array[i * 3 + 1] * (1 - heat) + 0.12 * heat;
+          col.array[i * 3 + 2] = col.array[i * 3 + 2] * (1 - heat) + 0.10 * heat;
+        }
       }
+      if (col && crackT > 0.01) col.needsUpdate = true;
     } else {
       // Default free-form Gaussian
       for (let i = 0; i < pos.count; i++) {
@@ -2929,8 +3110,10 @@ function DeformableShape({ shape, mode, scale, testScale, activeTest, interactMo
     }
     const pos = meshRef.current.geometry.attributes.position;
     const snapshot = new Float32Array(pos.array);
-    const topGeo = buildTornGeometry(snapshot, geometry, grabPtDeformed, pullNormal, true);
-    const botGeo = buildTornGeometry(snapshot, geometry, grabPtDeformed, pullNormal, false);
+    const refSize = Math.max(geoDims.halfW, geoDims.halfH, 0.3);
+    const fMode = fractureMode ?? "ductile";
+    const topGeo = buildTornGeometry(snapshot, geometry, grabPtDeformed, pullNormal, true, refSize, fMode);
+    const botGeo = buildTornGeometry(snapshot, geometry, grabPtDeformed, pullNormal, false, refSize, fMode);
     setFractureState({ topGeo, botGeo, pullNormal });
   }
 
