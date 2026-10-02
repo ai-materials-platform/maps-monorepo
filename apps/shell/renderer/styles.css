@@ -758,3 +758,9 @@ h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0; line-heigh
 .pd-unit { font-size: .8rem; font-weight: 400; color: var(--muted); margin-left: .25rem; }
 .pd-unc { font-size: .76rem; color: var(--muted); }
 .pd-badge { margin-top: .8rem; font-size: .8rem; border: 1px solid #e8a13c; background: rgba(232,161,60,.1); border-radius: 6px; padding: .5rem .7rem; }
+.pd-curve-bar { display: flex; align-items: end; gap: .7rem; margin: .4rem 0 .7rem; flex-wrap: wrap; }
+.pd-curve-bar label { display: flex; flex-direction: column; gap: .2rem; font-size: .78rem; color: var(--muted); }
+.pd-curve-bar select { padding: .35rem .5rem; font-size: .85rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); }
+.pd-curve-box .rs-empty { color: var(--muted); }
+.pd-svg { width: 100%; height: auto; }
+.pd-modeline { font-size: .78rem; color: var(--muted); margin-top: .3rem; }

@@ -75,6 +75,26 @@
               <div id="pdResults" class="pd-results">
                 <div class="rs-empty">조성을 입력하고 예측 실행을 눌러주세요.</div>
               </div>
+              <h3 style="margin-top:1rem;">Stress-Strain 곡선</h3>
+              <div class="pd-curve-bar">
+                <label>항복 모드
+                  <select id="pdYieldMode">
+                    <option value="continuous">연속항복</option>
+                    <option value="discontinuous">불연속항복</option>
+                  </select>
+                </label>
+                <label>파단 모드
+                  <select id="pdFractureMode">
+                    <option value="auto">자동</option>
+                    <option value="ductile">연성</option>
+                    <option value="brittle">취성</option>
+                  </select>
+                </label>
+                <button id="pdCurveBtn" class="action-button">곡선 그리기 <span>→</span></button>
+              </div>
+              <div id="pdCurveBox" class="pd-curve-box">
+                <div class="rs-empty">예측 실행 후 곡선 그리기를 눌러주세요.</div>
+              </div>
             </section>
           </div>
         </div>
