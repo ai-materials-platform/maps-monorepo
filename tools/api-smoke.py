@@ -41,3 +41,18 @@ s, r = call('POST', '/curve', {'input': high_c, 'use_pretrained': True,
 c = r.get('curve', {}) if isinstance(r, dict) else {}
 print('CURVE:', s, 'n=', len(c.get('strain', [])), 'pts=', sorted(c.get('points', {}).keys()),
       'mode=', c.get('meta', {}).get('yield_mode'), c.get('meta', {}).get('fracture_mode'))
+
+ws_body = {'name': 'smoke-test-ws', 'input': high_c,
+           'predictions': {'elongation_pct': {'value': 5.09}},
+           'correction': {'applied': True}, 'overwrite': True}
+s, r = call('POST', '/workspaces', ws_body)
+print('WS-SAVE:', s, r.get('name') if isinstance(r, dict) else r)
+s, r = call('GET', '/workspaces')
+names = [w['name'] for w in r.get('workspaces', [])] if isinstance(r, dict) else []
+print('WS-LIST:', s, 'smoke-test-ws' in names)
+s, r = call('GET', '/workspaces/smoke-test-ws')
+print('WS-LOAD:', s, (r.get('workspace', {}) or {}).get('name') if isinstance(r, dict) else r)
+s, r = call('DELETE', '/workspaces/smoke-test-ws')
+print('WS-DELETE:', s, r.get('status') if isinstance(r, dict) else r)
+s, r = call('GET', '/workspaces/smoke-test-ws')
+print('WS-GONE:', s, (r.get('error') or '')[:20] if isinstance(r, dict) else r)

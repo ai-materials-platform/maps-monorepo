@@ -301,8 +301,110 @@ def predict_pretrained():
 
 
 # ---------------------------------------------------------------------------
-# Stress-strain curve (그래프 데이터를 JSON으로 — 웹 UI용)
+# Workspaces (모노레포 루트 projects/ — GUI workspaces/와 별도)
 # ---------------------------------------------------------------------------
+
+def _workspace_root():
+    env = os.environ.get('AI_MAPS_WORKSPACE_ROOT')
+    if env:
+        return os.path.abspath(env)
+    here = os.path.abspath(os.path.dirname(__file__))  # src/api
+    return os.path.abspath(os.path.join(here, '..', '..', '..', '..', 'projects'))
+
+
+def _check_workspace_name(name):
+    if not isinstance(name, str) or not name.strip():
+        return None
+    name = name.strip()
+    if name in ('.', '..') or '/' in name or '\\' in name:
+        return None
+    return name
+
+
+def _workspace_summary(folder):
+    info = {'name': os.path.basename(folder)}
+    state_path = os.path.join(folder, 'state.json')
+    try:
+        with open(state_path, 'r', encoding='utf-8') as f:
+            state = json.load(f)
+        info['saved_date'] = state.get('saved_date', '')
+        info['has_prediction'] = 'predictions' in state or 'prediction_mean' in state
+    except Exception:
+        info['saved_date'] = ''
+        info['has_prediction'] = False
+    return info
+
+
+@app.route('/workspaces', methods=['GET'])
+def list_workspaces():
+    root = _workspace_root()
+    os.makedirs(root, exist_ok=True)
+    items = []
+    for entry in sorted(os.listdir(root)):
+        folder = os.path.join(root, entry)
+        if os.path.isdir(folder):
+            items.append(_workspace_summary(folder))
+    return jsonify({'status': 'success', 'workspaces': items})
+
+
+@app.route('/workspaces', methods=['POST'])
+def save_workspace():
+    body = request.json or {}
+    name = _check_workspace_name(body.get('name', ''))
+    if not name:
+        return jsonify({'error': '유효한 이름이 필요합니다. (/, \\, .. 불가)'}), 400
+    root = _workspace_root()
+    os.makedirs(root, exist_ok=True)
+    folder = os.path.join(root, name)
+    if os.path.exists(folder) and not body.get('overwrite', False):
+        return jsonify({'error': f"'{name}'이(가) 이미 존재합니다.", 'exists': True}), 409
+    os.makedirs(folder, exist_ok=True)
+    state = {
+        'name': name,
+        'saved_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'input': body.get('input') or {},
+        'predictions': body.get('predictions') or {},
+        'correction': body.get('correction') or {},
+        'curve_params': body.get('curve_params') or {},
+    }
+    try:
+        with open(os.path.join(folder, 'state.json'), 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+    return jsonify({'status': 'success', 'name': name})
+
+
+@app.route('/workspaces/<name>', methods=['GET'])
+def load_workspace(name):
+    checked = _check_workspace_name(name)
+    if not checked:
+        return jsonify({'error': '유효하지 않은 이름입니다.'}), 400
+    state_path = os.path.join(_workspace_root(), checked, 'state.json')
+    if not os.path.exists(state_path):
+        return jsonify({'error': '워크스페이스를 찾을 수 없습니다.'}), 404
+    try:
+        with open(state_path, 'r', encoding='utf-8') as f:
+            state = json.load(f)
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+    return jsonify({'status': 'success', 'workspace': state})
+
+
+@app.route('/workspaces/<name>', methods=['DELETE'])
+def delete_workspace(name):
+    import shutil
+    checked = _check_workspace_name(name)
+    if not checked:
+        return jsonify({'error': '유효하지 않은 이름입니다.'}), 400
+    folder = os.path.join(_workspace_root(), checked)
+    if not os.path.isdir(folder):
+        return jsonify({'error': '워크스페이스를 찾을 수 없습니다.'}), 404
+    try:
+        shutil.rmtree(folder)
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+    return jsonify({'status': 'success', 'name': checked})
 
 @app.route('/curve', methods=['POST'])
 def curve():
