@@ -240,6 +240,7 @@ function switchPage(pageId) {
   if (pageId === 'results') loadResults();
   if (pageId === 'projects') renderProjectsPage();
   if (pageId === 'settings') loadSettingsLogs();
+  if (pageId === 'prediction' && typeof initPredictionPage === 'function') initPredictionPage();
 }
 
 /* ── Settings / Service Log ── */
