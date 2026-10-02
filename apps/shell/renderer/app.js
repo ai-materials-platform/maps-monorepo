@@ -241,6 +241,7 @@ function switchPage(pageId) {
   if (pageId === 'projects') renderProjectsPage();
   if (pageId === 'settings') loadSettingsLogs();
   if (pageId === 'prediction' && typeof initPredictionPage === 'function') initPredictionPage();
+  if (pageId === 'training' && typeof initTrainingPage === 'function') initTrainingPage();
 }
 
 /* ── Settings / Service Log ── */
