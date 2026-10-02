@@ -400,6 +400,18 @@ async function deleteProject(id) {
 }
 
 /* ── Launch existing project (no dialog) ── */
+async function invokeWithTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} 시간 초과 (${Math.round(ms / 1000)}s)`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function launchApp(projectName, type) {
   const isSim = type === '시뮬레이션';
   const MIN_MS = 2800;
@@ -407,9 +419,9 @@ async function launchApp(projectName, type) {
   showLoading(`"${projectName}" — ${isSim ? '시뮬레이션' : '물성 예측'} 플랫폼 실행 중...`);
   try {
     if (isSim) {
-      await window.integrationApi.startSimulationApp();
+      await invokeWithTimeout(window.integrationApi.startSimulationApp(), 60000, '시뮬레이션 실행');
     } else {
-      await window.integrationApi.startPredictionApp(projectName);
+      await invokeWithTimeout(window.integrationApi.startPredictionApp(projectName), 60000, '물성 예측 실행');
     }
     setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
     showToast(`${isSim ? '시뮬레이션' : '물성 예측'} 플랫폼을 실행했습니다.`);
@@ -432,7 +444,7 @@ async function openPredictionPlatform() {
   const MIN_MS = 2800, start = Date.now();
   showLoading(`"${projectName}" — 물성 예측 플랫폼 실행 중...`);
   try {
-    await window.integrationApi.startPredictionApp(projectName);
+    await invokeWithTimeout(window.integrationApi.startPredictionApp(projectName), 60000, '물성 예측 실행');
     setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
     showToast('물성 예측 플랫폼 실행 요청을 보냈습니다.');
   } catch (err) {
@@ -453,7 +465,7 @@ async function openSimulationPlatform() {
   const MIN_MS = 2800, start = Date.now();
   showLoading(`"${projectName}" — 시뮬레이션 플랫폼 실행 중...`);
   try {
-    await window.integrationApi.startSimulationApp();
+    await invokeWithTimeout(window.integrationApi.startSimulationApp(), 90000, '시뮬레이션 실행');
     setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
     showToast('시뮬레이션 플랫폼 실행 요청을 보냈습니다.');
   } catch (err) {

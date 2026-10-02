@@ -584,6 +584,7 @@ ipcMain.handle('integration:startPredictionApp', async (_event, workspace) => {
     });
     predictionAppWorkspace = workspace || null;
     await waitForProcessBoot(predictionAppProcess, 'Prediction app');
+    logService('prediction-app', 'boot confirmed, returning to renderer');
   }
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
   return { started: true, path: predictionRepoDir };
