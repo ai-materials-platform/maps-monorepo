@@ -198,12 +198,6 @@ app.on("before-quit", () => {
 
 ipcMain.handle("app:getBackendUrl", () => "http://127.0.0.1:8765");
 
-ipcMain.handle("app:close", (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (win) win.close();
-  return { closed: true };
-});
-
 ipcMain.handle("prediction:open", async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   return openShell(win);
