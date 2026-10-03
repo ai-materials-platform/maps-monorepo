@@ -205,9 +205,28 @@ ipcMain.handle("app:close", (event) => {
 });
 
 ipcMain.handle("prediction:open", async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  return openShell(win);
+});
+
+ipcMain.handle("app:close", async (event) => {
+  // PyQt 은퇴 후: 대시보드 버튼은 셸로 귀환한다. 셸 기동 성공 시에만 창을 닫고,
+  // 셸 프로세스는 분리한다 (시뮬 종료 시 같이 죽지 않게).
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await openShell(win);
+  if (result && result.started) {
+    shellProcess = null;
+    try {
+      if (win && !win.isDestroyed()) win.close();
+    } catch (_) {}
+    return { closed: true, handedOff: true };
+  }
+  return { closed: false, reason: result ? result.reason : "unknown" };
+});
+
+async function openShell(win) {
   // PyQt 은퇴: 물성 예측은 통합 런처(셸)의 웹 탭에서 수행한다.
   // 여기서는 셸을 띄우거나 이미 떠 있으면 앞으로 가져온다.
-  const win = BrowserWindow.fromWebContents(event.sender);
   const shellDir = resolveShellDir();
 
   if (!fs.existsSync(path.join(shellDir, "package.json"))) {
