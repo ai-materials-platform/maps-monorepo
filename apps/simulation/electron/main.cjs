@@ -58,30 +58,6 @@ function resolveShellDir() {
   return path.resolve(rootDir, "..", "shell"); // monorepo layout
 }
 
-function waitForShellWindow(timeoutMs = 30000) {
-  // 셸(Electron) 기동이 끝날 때까지 최대 timeoutMs만큼 대기한다.
-  // powershell 한 번으로 폴링해서 프로세스 생성 비용을 아낀다.
-  if (process.platform !== "win32") return Promise.resolve(false);
-  const attempts = Math.max(1, Math.round(timeoutMs / 500));
-  const script = [
-    `for ($i = 0; $i -lt ${attempts}; $i++) {`,
-    "  $p = Get-Process | Where-Object { $_.MainWindowTitle -like 'Material Property*' } | Select-Object -First 1",
-    "  if ($p -and $p.MainWindowHandle -ne 0) { exit 0 }",
-    "  Start-Sleep -Milliseconds 500",
-    "}",
-    "exit 1"
-  ].join("\n");
-  return new Promise((resolve) => {
-    try {
-      const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true });
-      child.on("close", (code) => resolve(code === 0));
-      child.on("error", () => resolve(false));
-    } catch (_) {
-      resolve(false);
-    }
-  });
-}
-
 function focusShellWindow() {
   // 이미 떠 있는 통합 런처(셸) 창을 앞으로 가져온다. 타이틀로 식별한다:
   // "Material Property Prediction & Simulation System" (시뮬레이션 창 "MAPS"와 구분)
@@ -228,7 +204,17 @@ ipcMain.handle("app:close", async (event) => {
 
 async function openShell(win) {
   // PyQt 은퇴: 물성 예측은 통합 런처(셸)의 웹 탭에서 수행한다.
-  // 여기서는 셸을 띄우거나 이미 떠 있으면 앞으로 가져온다.
+  // 전략: 일단 스스로 최소화(항상 성공) → 뒤에 있던 셸이 자연히 보인다.
+  // 셸이 없으면 기동한다 (중복 기동은 single-instance 락이 막아줌).
+  try {
+    if (win && !win.isDestroyed() && win.isMinimizable()) win.minimize();
+  } catch (_) {}
+
+  // best-effort: 떠 있는 셸을 앞으로 (실패해도 무시 — 최소화만으로 충분)
+  try {
+    await focusShellWindow();
+  } catch (_) {}
+
   const shellDir = resolveShellDir();
 
   if (!fs.existsSync(path.join(shellDir, "package.json"))) {
@@ -240,8 +226,7 @@ async function openShell(win) {
   }
 
   if (shellProcess && !shellProcess.killed) {
-    const focused = await focusShellWindow();
-    return { started: true, reused: true, focused };
+    return { started: true, reused: true, focused: true };
   }
 
   const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -279,17 +264,9 @@ async function openShell(win) {
     return { started: false, reason: "spawn-failed" };
   }
 
-  // 셸 창이 실제로 뜰 때까지 시뮬레이션 창을 앞에 유지한다 (크롬 플래시 방지).
-  // 뜨는 게 확인되면 시뮬레이션을 최소화하고 셸 창으로 포커스를 넘긴다.
-  const appeared = await waitForShellWindow(30000);
-  if (appeared) {
-    try {
-      if (win && !win.isDestroyed() && win.isMinimizable()) win.minimize();
-    } catch (_) {}
-    const focused = await focusShellWindow();
-    return { started: true, path: shellDir, focused };
-  }
-  return { started: true, path: shellDir, focused: false };
+  // 셸은 백그라운드에서 뜬다 (새 창으로 포커스가 가므로 대기 불필요).
+  // single-instance 락 덕분에 중복 기동해도 기존 창만 앞으로 나온다.
+  return { started: true, path: shellDir, focused: true };
 }
 
 ipcMain.handle("simulation:saveToWorkspace", async (_event, { alloyName, prediction, simulation, composition, process: proc }) => {
