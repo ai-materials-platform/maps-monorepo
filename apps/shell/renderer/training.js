@@ -11,6 +11,7 @@ function initTrainingPage() {
   document.getElementById('trLoadBtn').addEventListener('click', trUpload);
   document.getElementById('trPrepBtn').addEventListener('click', trPreprocess);
   document.getElementById('trTrainBtn').addEventListener('click', trTrain);
+  document.getElementById('trDataBtn').addEventListener('click', trLoadData);
 }
 
 function trSetInfo(id, msg, isError) {
@@ -84,8 +85,7 @@ async function trTrain() {
   }
 }
 
-function renderTrainMetrics(box, data) {
-  const metrics = data.metrics || {};
+function renderTrainMetrics(box, data) {  const metrics = data.metrics || {};
   const rows = Object.entries(metrics).map(([name, m]) => (
     `<tr><td>${escHtml(name)}</td><td>${m.r2}</td><td>${m.mae}</td></tr>`
   )).join('');
@@ -101,4 +101,32 @@ function apiDown(e) {
     return '예측 서버(:5000)에 연결할 수 없습니다. Flask를 먼저 실행하세요.';
   }
   return msg;
+}
+
+async function trLoadData() {
+  const box = document.getElementById('trDataBox');
+  trSetInfo('trDataInfo', '불러오는 중...', false);
+  try {
+    const res = await fetch(`${TRAIN_API}/data?limit=100`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    const cols = data.columns || [];
+    const rows = data.rows || [];
+    if (!cols.length) {
+      box.innerHTML = '<div class="rs-empty">표시할 컬럼이 없습니다.</div>';
+      return;
+    }
+    const head = cols.map((c) => `<th>${escHtml(c)}</th>`).join('');
+    const body = rows.map((r) => (
+      '<tr>' + cols.map((c) => `<td>${escHtml(r[c] === null || r[c] === undefined ? '' : r[c])}</td>`).join('') + '</tr>'
+    )).join('');
+    box.innerHTML =
+      `<div class="pd-table-wrap"><table class="pd-table"><thead><tr>${head}</tr></thead>` +
+      `<tbody>${body}</tbody></table></div>` +
+      `<div class="pd-modeline">상위 ${rows.length}행 / 전체 ${data.total || rows.length}행</div>`;
+    trSetInfo('trDataInfo', `${data.total || rows.length}행 로드`, false);
+  } catch (e) {
+    trSetInfo('trDataInfo', apiDown(e), true);
+    box.innerHTML = '<div class="rs-empty">데이터를 불러오지 못했습니다.</div>';
+  }
 }
