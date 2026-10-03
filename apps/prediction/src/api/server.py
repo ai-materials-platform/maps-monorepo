@@ -161,7 +161,10 @@ def preprocess():
     outlier_strategy = body.get('outlier_strategy', 'clip')
     feature_engineering = body.get('feature_engineering', True)
 
-    data_engine.set_quality_options(
+    if not data_engine.file_path:
+        return jsonify({'error': '파일이 로드되지 않았습니다. 먼저 /load로 업로드하세요.'}), 400
+
+    data_engine.configure_quality_rules(
         missing_strategy=missing_strategy,
         outlier_strategy=outlier_strategy,
         feature_engineering=feature_engineering,

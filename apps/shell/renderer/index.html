@@ -80,8 +80,8 @@
                 <label class="pd-field pd-wide"><span>이상치 처리</span>
                   <select id="trOutlier" data-tr-opt>
                     <option value="clip">범위 보정</option>
-                    <option value="iqr">IQR 제거</option>
-                    <option value="none">안 함</option>
+                    <option value="remove">행 삭제</option>
+                    <option value="flag">표시만</option>
                   </select>
                 </label>
               </div>
@@ -96,6 +96,7 @@
                     <option value="RF">Random Forest</option>
                     <option value="GBM">Gradient Boosting</option>
                     <option value="MLP">Neural Network</option>
+                    <option value="TFP">확률론적 앙상블 (TFP, 느림)</option>
                   </select>
                 </label>
               </div>
