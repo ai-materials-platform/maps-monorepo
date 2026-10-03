@@ -205,6 +205,11 @@ class UISetupMixin:
         self._floating_chatbot_placed = False  # 초기 배치 여부 플래그
         self._floating_chatbot.show()
         QTimer.singleShot(0, self._reposition_floating_chatbot)
+        # 이벤트 누락 대비 폴링 백업: 포커스가 앱을 벗어나면 아이콘 숨김
+        self._floating_focus_timer = QTimer(self)
+        self._floating_focus_timer.setInterval(200)
+        self._floating_focus_timer.timeout.connect(self._refresh_floating_for_focus)
+        self._floating_focus_timer.start()
 
     def _apply_ui_font(self):
         # pixelSize → pointSize 변환 (DPI 기반) — setPixelSize 사용 시 pointSize=-1 경고 방지
@@ -1246,29 +1251,43 @@ class UISetupMixin:
 
     def _sync_floating_with_activation(self):
         from PyQt6.QtCore import QTimer
+
+        QTimer.singleShot(0, self._refresh_floating_for_focus)
+
+    def _remember_and_hide_floating(self):
+        dlg = getattr(self, "_llm_dialog", None) or getattr(self, "_llm_chat_dialog", None)
+        self._llm_dialog_was_visible = bool(dlg is not None and dlg.isVisible())
+        self._set_floating_visible(False)
+
+    def _refresh_floating_for_focus(self):
+        """활성 윈도우 기준 플로팅 아이콘 표시 갱신 (이벤트+폴링 공용).
+
+        포커스가 앱을 완전히 벗어나면 즉시 숨긴다. 단, 커서가 아이콘 위에
+        있으면 아이콘 클릭 중으로 보고 건너뛴다 (클릭 무효화 방지).
+        """
         from PyQt6.QtWidgets import QApplication
 
-        def _apply():
-            active = QApplication.activeWindow()
-            if active is None:
-                # 포커스가 우리 앱을 완전히 벗어남(다른 앱 클릭) → 플로팅 레이어 숨김 (위치는 유지됨)
-                # NOTE: 우리 다이얼로그/아이콘 클릭 시에는 activeWindow가 유지되므로 숨기지 않는다.
-                dlg = getattr(self, "_llm_dialog", None) or getattr(self, "_llm_chat_dialog", None)
-                self._llm_dialog_was_visible = bool(dlg is not None and dlg.isVisible())
-                self._set_floating_visible(False)
-            else:
-                # 우리 앱 안으로 복귀 → 최소화 상태가 아니면 복원
-                minimized = bool(self.windowState() & Qt.WindowState.WindowMinimized)
-                if not minimized and not self.isHidden():
-                    self._set_floating_visible(True)
-                    if getattr(self, "_llm_dialog_was_visible", False):
-                        dlg = getattr(self, "_llm_dialog", None) or getattr(self, "_llm_chat_dialog", None)
-                        if dlg is not None:
-                            dlg.show()
-                            dlg.raise_()
-                    self._llm_dialog_was_visible = False
-
-        QTimer.singleShot(0, _apply)
+        if not hasattr(self, "_floating_chatbot"):
+            return
+        minimized = bool(self.windowState() & Qt.WindowState.WindowMinimized)
+        if minimized or self.isHidden():
+            if self._floating_chatbot.isVisible():
+                self._remember_and_hide_floating()
+            return
+        if QApplication.activeWindow() is None:
+            if self._floating_chatbot.underMouse():
+                return
+            if self._floating_chatbot.isVisible():
+                self._remember_and_hide_floating()
+        else:
+            if not self._floating_chatbot.isVisible():
+                self._floating_chatbot.show()
+                if getattr(self, "_llm_dialog_was_visible", False):
+                    dlg = getattr(self, "_llm_dialog", None) or getattr(self, "_llm_chat_dialog", None)
+                    if dlg is not None:
+                        dlg.show()
+                        dlg.raise_()
+                self._llm_dialog_was_visible = False
 
     def show_quality_help(self):
         help_text = """

@@ -240,6 +240,8 @@ function switchPage(pageId) {
   if (pageId === 'results') loadResults();
   if (pageId === 'projects') renderProjectsPage();
   if (pageId === 'settings') loadSettingsLogs();
+  if (pageId === 'prediction' && typeof initPredictionPage === 'function') initPredictionPage();
+  if (pageId === 'training' && typeof initTrainingPage === 'function') initTrainingPage();
 }
 
 /* ── Settings / Service Log ── */
@@ -266,12 +268,74 @@ function loadSettingsLogs() {
 async function loadResults() {
   const content = document.getElementById('rsContent');
   content.innerHTML = '<div class="rs-empty">불러오는 중...</div>';
+  let pyqtHtml = '';
   try {
     const projects = await window.integrationApi.listResults();
-    renderResults(projects);
+    const tmp = document.createElement('div');
+    renderResultsInto(tmp, projects);
+    pyqtHtml = tmp.innerHTML;
   } catch (err) {
-    content.innerHTML = `<div class="rs-empty">오류: ${err.message}</div>`;
+    pyqtHtml = `<div class="rs-empty">오류: ${escHtml(err.message)}</div>`;
   }
+  let apiHtml = '';
+  try {
+    const res = await fetch('http://127.0.0.1:5000/workspaces');
+    const data = await res.json().catch(() => ({}));
+    apiHtml = renderApiWorkspaces(data.workspaces || []);
+  } catch (_) {
+    apiHtml = '<div class="rs-empty">API 서버(:5000) 미연결 — 웹 저장소를 보려면 Flask를 실행하세요.</div>';
+  }
+  content.innerHTML =
+    `<div class="section-heading"><h3>데스크톱 저장소 (PyQt)</h3></div>${pyqtHtml}` +
+    `<div class="section-heading" style="margin-top:1rem;"><h3>웹 저장소 (Flask)</h3></div>${apiHtml}`;
+}
+
+function renderApiWorkspaces(items) {
+  if (!items.length) return '<div class="rs-empty">저장된 웹 워크스페이스가 없습니다.</div>';
+  return items.map((w) => (
+    `<div class="rs-save-row"><div class="rs-save-info">` +
+    `<div class="rs-save-name">${escHtml(w.name)}</div>` +
+    `<div class="rs-save-meta">${escHtml(w.saved_date || '—')}${w.has_prediction ? '&nbsp;&nbsp;<span class="rs-r2">예측 포함</span>' : ''}</div>` +
+    `</div><button class="rs-dl-btn" data-ws-load="${encodeURIComponent(w.name)}">불러오기</button>` +
+    `<button class="rs-dl-btn" data-ws-del="${encodeURIComponent(w.name)}">삭제</button></div>`
+  )).join('');
+}
+
+async function loadApiWorkspace(name) {
+  try {
+    const res = await fetch(`http://127.0.0.1:5000/workspaces/${encodeURIComponent(name)}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    const ws = data.workspace || {};
+    const input = ws.input || {};
+    document.querySelectorAll('[data-pd-key]').forEach((node) => {
+      if (input[node.dataset.pdKey] !== undefined) node.value = input[node.dataset.pdKey];
+    });
+    if (typeof initPredictionPage === 'function') initPredictionPage();
+    switchPage('prediction');
+    showToast(`'${name}' 불러옴 — 예측 실행을 눌러주세요.`);
+  } catch (err) {
+    showToast(err.message || String(err), 'error');
+  }
+}
+
+async function deleteApiWorkspace(name) {
+  if (!confirm(`'${name}' 워크스페이스를 삭제하시겠습니까?`)) return;
+  try {
+    const res = await fetch(`http://127.0.0.1:5000/workspaces/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    showToast('삭제했습니다.');
+    loadResults();
+  } catch (err) {
+    showToast(err.message || String(err), 'error');
+  }
+}
+
+function renderResultsInto(box, projects) {
+  const content = document.getElementById('rsContent');
+  renderResults(projects);
+  box.innerHTML = content.innerHTML;
+  content.innerHTML = '';
 }
 
 function renderResults(projects) {
@@ -399,6 +463,17 @@ async function deleteProject(id) {
 }
 
 /* ── Launch existing project (no dialog) ── */
+async function invokeWithTimeout(promise, ms, label) {  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} 시간 초과 (${Math.round(ms / 1000)}s)`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function launchApp(projectName, type) {
   const isSim = type === '시뮬레이션';
   const MIN_MS = 2800;
@@ -406,9 +481,10 @@ async function launchApp(projectName, type) {
   showLoading(`"${projectName}" — ${isSim ? '시뮬레이션' : '물성 예측'} 플랫폼 실행 중...`);
   try {
     if (isSim) {
-      await window.integrationApi.startSimulationApp();
+      await invokeWithTimeout(window.integrationApi.startSimulationApp(), 60000, '시뮬레이션 실행');
     } else {
-      await window.integrationApi.startPredictionApp(projectName);
+      // PyQt 은퇴: 웹 예측 탭으로 이동 (별도 프로세스 기동 안 함)
+      switchPage('prediction');
     }
     setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
     showToast(`${isSim ? '시뮬레이션' : '물성 예측'} 플랫폼을 실행했습니다.`);
@@ -430,14 +506,10 @@ async function openPredictionPlatform() {
 
   const MIN_MS = 2800, start = Date.now();
   showLoading(`"${projectName}" — 물성 예측 플랫폼 실행 중...`);
-  try {
-    await window.integrationApi.startPredictionApp(projectName);
-    setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
-    showToast('물성 예측 플랫폼 실행 요청을 보냈습니다.');
-  } catch (err) {
-    hideLoading();
-    showToast(err.message || String(err), 'error');
-  }
+  // PyQt 은퇴: 웹 예측 탭으로 이동 (별도 프로세스 기동 안 함)
+  switchPage('prediction');
+  setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
+  showToast('웹 물성 예측으로 이동했습니다.');
 }
 
 async function openSimulationPlatform() {
@@ -452,7 +524,7 @@ async function openSimulationPlatform() {
   const MIN_MS = 2800, start = Date.now();
   showLoading(`"${projectName}" — 시뮬레이션 플랫폼 실행 중...`);
   try {
-    await window.integrationApi.startSimulationApp();
+    await invokeWithTimeout(window.integrationApi.startSimulationApp(), 90000, '시뮬레이션 실행');
     setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
     showToast('시뮬레이션 플랫폼 실행 요청을 보냈습니다.');
   } catch (err) {
@@ -517,19 +589,39 @@ function bindEvents() {
     document.querySelector('.app-shell').classList.toggle('sidebar-collapsed');
   });
 
+  // Dark mode (persisted)
+  const applyTheme = (theme) => {
+    if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
+    try { localStorage.setItem('maps-theme', theme); } catch (_) {}
+  };
+  try {
+    if ((localStorage.getItem('maps-theme') || 'light') === 'dark') applyTheme('dark');
+  } catch (_) {}
+  document.getElementById('darkModeBtn').addEventListener('click', () => {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    applyTheme(isDark ? 'light' : 'dark');
+  });
+
   // Nav page switching
   document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
     btn.addEventListener('click', () => switchPage(btn.dataset.page));
   });
 
-  // Results repository — Excel download button
+  // Results repository — Excel download button + API workspace buttons
   document.getElementById('rsContent').addEventListener('click', (e) => {
     const btn = e.target.closest('.rs-dl-btn[data-project]');
-    if (!btn) return;
-    downloadResultExcel(
-      decodeURIComponent(btn.dataset.project),
-      decodeURIComponent(btn.dataset.save)
-    );
+    if (btn) {
+      downloadResultExcel(
+        decodeURIComponent(btn.dataset.project),
+        decodeURIComponent(btn.dataset.save)
+      );
+      return;
+    }
+    const loadBtn = e.target.closest('[data-ws-load]');
+    if (loadBtn) { loadApiWorkspace(decodeURIComponent(loadBtn.dataset.wsLoad)); return; }
+    const delBtn = e.target.closest('[data-ws-del]');
+    if (delBtn) { deleteApiWorkspace(decodeURIComponent(delBtn.dataset.wsDel)); return; }
   });
   document.getElementById('rsRefreshBtn').addEventListener('click', loadResults);
   document.getElementById('allProjectsBtn').addEventListener('click', openAllProjectsModal);

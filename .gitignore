@@ -24,8 +24,10 @@ final_error.txt
 apps/prediction/models/*.pkl
 !apps/prediction/models/pretrained_material_model.pkl
 !apps/prediction/models/pretrained_data_engine.pkl
+apps/prediction/models/custom-*
 apps/prediction/data/*.xlsx
 apps/prediction/data/*.xls
+apps/prediction/data/uploads/
 apps/prediction/data/*.pkl
 apps/prediction/data/*.index
 apps/prediction/data/*.data-*
@@ -47,6 +49,9 @@ apps/simulation/logs/
 
 # ---- Local workspace saves ----
 apps/workspaces/
+
+# ---- Reference datasets (third-party, see reference-data/SOURCES.md) ----
+reference-data/
 
 # ---- OS ----
 .DS_Store

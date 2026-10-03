@@ -1,12 +1,20 @@
 "use strict";
 const { app, BrowserWindow, ipcMain, dialog } = require("electron");
-const { spawn, spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 
+// 시뮬 전용 프로필 디렉터리 (셸과 공유 금지 — 공유 시 single-instance 락 충돌로
+// 나중에 뜨는 쪽이 조용히 종료됨)
+try {
+  const simProfile = path.join(app.getPath("appData"), "MAPS-simulation");
+  fs.mkdirSync(simProfile, { recursive: true });
+  app.setPath("userData", simProfile);
+} catch (_) {}
+
 const rootDir = path.resolve(__dirname, "..");
 let backendProcess = null;
-let predictionProcess = null;
+let shellProcess = null;
 let appQuitting = false;
 
 // 중복 실행 방지: 두 번째 인스턴스는 종료하고 기존 창을 앞으로 가져온다.
@@ -43,57 +51,19 @@ process.on("unhandledRejection", (reason) => {
   fileLog("UNHANDLED-REJECTION:", reason?.stack ?? reason ?? reason);
 });
 
-function resolvePythonCommand() {
-  if (process.env.AI_MATERIALS_PYTHON) return process.env.AI_MATERIALS_PYTHON;
-  return process.platform === "win32" ? "python" : "python3";
-}
-
-function resolvePredictionDir() {
-  if (process.env.AI_MATERIALS_PLATFORM_DIR) {
-    return path.resolve(process.env.AI_MATERIALS_PLATFORM_DIR);
+function resolveShellDir() {
+  if (process.env.AI_MATERIALS_SHELL_DIR) {
+    return path.resolve(process.env.AI_MATERIALS_SHELL_DIR);
   }
-  return path.resolve(rootDir, "..", "prediction"); // monorepo layout
+  return path.resolve(rootDir, "..", "shell"); // monorepo layout
 }
 
-function pythonHasModule(pythonCommand, moduleName) {
-  try {
-    const result = spawnSync(pythonCommand, ["-c", `import ${moduleName}`], { windowsHide: true });
-    return result.status === 0;
-  } catch (_) {
-    return false;
-  }
-}
-
-function waitForPredictionWindow(timeoutMs = 30000) {
-  // PyQt 기동(TF 임포트 등)이 끝날 때까지 최대 timeoutMs만큼 대기한다.
-  // powershell 한 번으로 폴링해서 프로세스 생성 비용을 아낀다.
-  if (process.platform !== "win32") return Promise.resolve(false);
-  const attempts = Math.max(1, Math.round(timeoutMs / 500));
-  const script = [
-    `for ($i = 0; $i -lt ${attempts}; $i++) {`,
-    "  $p = Get-Process | Where-Object { $_.MainWindowTitle -like 'MAPS*Microstructure*' } | Select-Object -First 1",
-    "  if ($p -and $p.MainWindowHandle -ne 0) { exit 0 }",
-    "  Start-Sleep -Milliseconds 500",
-    "}",
-    "exit 1"
-  ].join("\n");
-  return new Promise((resolve) => {
-    try {
-      const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true });
-      child.on("close", (code) => resolve(code === 0));
-      child.on("error", () => resolve(false));
-    } catch (_) {
-      resolve(false);
-    }
-  });
-}
-
-function focusPredictionWindow() {
-  // 이미 떠 있는 예측(PyQt) 창을 앞으로 가져온다. 타이틀로 식별한다:
-  // "MAPS — Microstructure & Alloy Prediction System" (시뮬레이션 창 "MAPS"와 구분)
+function focusShellWindow() {
+  // 이미 떠 있는 통합 런처(셸) 창을 앞으로 가져온다. 타이틀로 식별한다:
+  // "Material Property Prediction & Simulation System" (시뮬레이션 창 "MAPS"와 구분)
   if (process.platform !== "win32") return Promise.resolve(false);
   const script = [
-    "$p = Get-Process | Where-Object { $_.MainWindowTitle -like 'MAPS*Microstructure*' } | Select-Object -First 1",
+    "$p = Get-Process | Where-Object { $_.MainWindowTitle -like 'Material Property*' } | Select-Object -First 1",
     "if (-not $p -or -not $p.MainWindowHandle -or $p.MainWindowHandle -eq 0) { exit 1 }",
     "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class MAPSWin { [DllImport(\"user32.dll\")] public static extern bool ShowWindow(System.IntPtr h, int n); [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(System.IntPtr h); [DllImport(\"user32.dll\")] public static extern bool IsIconic(System.IntPtr h); }'",
     "if ([MAPSWin]::IsIconic($p.MainWindowHandle)) { [MAPSWin]::ShowWindow($p.MainWindowHandle, 9) | Out-Null }",
@@ -207,67 +177,75 @@ app.on("before-quit", () => {
   fileLog("[main] before-quit");
   appQuitting = true;
   if (backendProcess && !backendProcess.killed) backendProcess.kill();
-  if (predictionProcess && !predictionProcess.killed) predictionProcess.kill();
+  if (shellProcess && !shellProcess.killed) shellProcess.kill();
 });
 
 ipcMain.handle("app:getBackendUrl", () => "http://127.0.0.1:8765");
 
-ipcMain.handle("app:close", (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (win) win.close();
-  return { closed: true };
-});
-
 ipcMain.handle("prediction:open", async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
-  const predictionDir = resolvePredictionDir();
-  const entry = path.join(predictionDir, "main.py");
+  return openShell(win);
+});
 
-  if (!fs.existsSync(entry)) {
+ipcMain.handle("app:close", async (event) => {
+  // PyQt 은퇴 후: 대시보드 버튼은 셸로 귀환한다. 셸 기동 성공 시에만 창을 닫고,
+  // 셸 프로세스는 분리한다 (시뮬 종료 시 같이 죽지 않게).
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await openShell(win);
+  if (result && result.started) {
+    shellProcess = null;
+    try {
+      if (win && !win.isDestroyed()) win.close();
+    } catch (_) {}
+    return { closed: true, handedOff: true };
+  }
+  return { closed: false, reason: result ? result.reason : "unknown" };
+});
+
+async function openShell(win) {
+  // PyQt 은퇴: 물성 예측은 통합 런처(셸)의 웹 탭에서 수행한다.
+  // 전략: 일단 스스로 최소화(항상 성공) → 뒤에 있던 셸이 자연히 보인다.
+  // 셸이 없으면 기동한다 (중복 기동은 single-instance 락이 막아줌).
+  try {
+    if (win && !win.isDestroyed() && win.isMinimizable()) win.minimize();
+  } catch (_) {}
+
+  // best-effort: 떠 있는 셸을 앞으로 (실패해도 무시 — 최소화만으로 충분)
+  try {
+    await focusShellWindow();
+  } catch (_) {}
+
+  const shellDir = resolveShellDir();
+
+  if (!fs.existsSync(path.join(shellDir, "package.json"))) {
     dialog.showErrorBox(
-      "물성 예측 앱을 찾을 수 없음",
-      `예측 앱 진입점이 없습니다:\n${entry}\n\nAI_MATERIALS_PLATFORM_DIR 환경변수를 확인하세요.`
+      "통합 런처를 찾을 수 없음",
+      `셸 디렉터리가 없습니다:\n${shellDir}\n\nAI_MATERIALS_SHELL_DIR 환경변수를 확인하세요.`
     );
     return { started: false, reason: "not-found" };
   }
 
-  if (predictionProcess && !predictionProcess.killed) {
-    const focused = await focusPredictionWindow();
-    return { started: true, reused: true, focused };
+  if (shellProcess && !shellProcess.killed) {
+    return { started: true, reused: true, focused: true };
   }
 
-  const pythonCommand = resolvePythonCommand();
-  if (!pythonHasModule(pythonCommand, "PyQt6")) {
-    dialog.showErrorBox(
-      "예측 앱 의존성 없음",
-      `PyQt6을 찾을 수 없습니다.\n\n모노레포 루트에서 먼저 설치하세요:\n pip install -r requirements.txt`
-    );
-    return { started: false, reason: "missing-deps" };
-  }
-
+  const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
   try {
-    // 예측 앱(PyQt) stdout/stderr를 로그 파일로 — 사라지는 크래시의 traceback 확보용
-    let childOut = "ignore";
-    let childErr = "ignore";
-    try {
-      const predLog = path.join(logDir, "prediction.out.log");
-      childOut = fs.openSync(predLog, "a");
-      childErr = childOut;
-      fs.writeSync(childOut, `\n===== prediction start ${new Date().toISOString()} =====\n`);
-    } catch (_) {}
-    predictionProcess = spawn(pythonCommand, [entry], {
-      cwd: predictionDir,
-      stdio: ["ignore", childOut, childErr],
-      windowsHide: true
+    fileLog("[main] starting shell in", shellDir);
+    shellProcess = spawn(npmCmd, ["run", "dev"], {
+      cwd: shellDir,
+      stdio: "ignore",
+      shell: process.platform === "win32",
+      windowsHide: true,
     });
-    predictionProcess.on("error", (err) => {
-      predictionProcess = null;
-      dialog.showErrorBox("물성 예측 앱 실행 실패", String(err?.message ?? err));
+    shellProcess.on("error", (err) => {
+      shellProcess = null;
+      dialog.showErrorBox("통합 런처 실행 실패", String(err?.message ?? err));
     });
-    predictionProcess.on("exit", (code, signal) => {
-      fileLog("[main] prediction exit:", code, signal);
-      predictionProcess = null;
-      // 예측 창이 닫히면 최소화된 시뮬레이션 창을 다시 앞으로 (왕복 UX).
+    shellProcess.on("exit", (code, signal) => {
+      fileLog("[main] shell exit:", code, signal);
+      shellProcess = null;
+      // 셸이 닫히면 최소화된 시뮬레이션 창을 다시 앞으로 (왕복 UX).
       // 단, 앱 종료 중이거나 창이 이미 없어진 경우는 제외.
       try {
         if (!appQuitting) {
@@ -281,23 +259,15 @@ ipcMain.handle("prediction:open", async (event) => {
       } catch (_) {}
     });
   } catch (err) {
-    predictionProcess = null;
-    dialog.showErrorBox("물성 예측 앱 실행 실패", String(err?.message ?? err));
+    shellProcess = null;
+    dialog.showErrorBox("통합 런처 실행 실패", String(err?.message ?? err));
     return { started: false, reason: "spawn-failed" };
   }
 
-  // 예측 창이 실제로 뜰 때까지 시뮬레이션 창을 앞에 유지한다 (크롬 플래시 방지).
-  // 뜨는 게 확인되면 시뮬레이션을 최소화하고 예측 창으로 포커스를 넘긴다.
-  const appeared = await waitForPredictionWindow(30000);
-  if (appeared) {
-    try {
-      if (win && !win.isDestroyed() && win.isMinimizable()) win.minimize();
-    } catch (_) {}
-    const focused = await focusPredictionWindow();
-    return { started: true, path: predictionDir, focused };
-  }
-  return { started: true, path: predictionDir, focused: false };
-});
+  // 셸은 백그라운드에서 뜬다 (새 창으로 포커스가 가므로 대기 불필요).
+  // single-instance 락 덕분에 중복 기동해도 기존 창만 앞으로 나온다.
+  return { started: true, path: shellDir, focused: true };
+}
 
 ipcMain.handle("simulation:saveToWorkspace", async (_event, { alloyName, prediction, simulation, composition, process: proc }) => {
   const workspacesRoot = process.env.AI_MAPS_WORKSPACE_ROOT

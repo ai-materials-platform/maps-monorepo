@@ -29,6 +29,8 @@ const required = [
   'apps/shell/electron/preload.cjs',
   'apps/shell/renderer/index.html',
   'apps/shell/renderer/app.js',
+  'apps/shell/renderer/prediction.js',
+  'apps/shell/renderer/training.js',
   'apps/shell/package.json',
 ];
 for (const f of required) {

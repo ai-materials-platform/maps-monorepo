@@ -24,7 +24,7 @@ _SLIDER_STEPS = 1000
 _trapezoid = getattr(np, "trapezoid", getattr(np, "trapz", None))
 
 _COLUMN_RANGES = {
-    "C":  (0.01, 0.30),
+    "C":  (0.01, 2.00),
     "Si": (0.10, 3.00),
     "Mn": (0.50, 5.00),
     "P":  (0.001, 0.05),
@@ -84,6 +84,11 @@ class StrainExploreDialog(QDialog):
         self._ch_text = None
         self._ch_ax = None
         self._ch_bg = None
+        self._ch_bg_key = None
+        self._zoomed = False
+        self._zoom_limits = None
+        self._full_limits = None
+        self._zoom_selector = None
 
         self._update_timer = QTimer(self)
         self._update_timer.setSingleShot(True)
@@ -170,6 +175,60 @@ class StrainExploreDialog(QDialog):
         self._col_combo.currentIndexChanged.connect(self._on_column_changed)
         col_layout.addWidget(self._col_combo)
         layout.addWidget(col_box)
+
+        # 항복 모드 (연속항복 / 불연속항복)
+        yield_box = QGroupBox("항복 모드")
+        yield_layout = QVBoxLayout(yield_box)
+        yield_layout.setContentsMargins(10, 10, 10, 10)
+        yield_layout.setSpacing(6)
+
+        self._yield_combo = QComboBox()
+        self._yield_combo.addItem("연속항복", "continuous")
+        self._yield_combo.addItem("불연속항복 (상·하항복점)", "discontinuous")
+        self._yield_combo.currentIndexChanged.connect(self._on_yield_mode_changed)
+        yield_layout.addWidget(self._yield_combo)
+
+        luders_row = QHBoxLayout()
+        luders_row.setSpacing(6)
+        luders_lbl = QLabel("Lüders 변형률")
+        luders_lbl.setStyleSheet(f"font-size: 11px; color: {text_sec};")
+        luders_row.addWidget(luders_lbl)
+        self._luders_spin = QDoubleSpinBox()
+        self._luders_spin.setDecimals(1)
+        self._luders_spin.setRange(0.2, 8.0)
+        self._luders_spin.setSingleStep(0.5)
+        self._luders_spin.setValue(2.0)
+        self._luders_spin.setSuffix(" %")
+        self._luders_spin.setFixedHeight(30)
+        self._luders_spin.setEnabled(False)
+        self._luders_spin.valueChanged.connect(lambda _v: self._update_timer.start())
+        luders_row.addWidget(self._luders_spin, 1)
+        yield_layout.addLayout(luders_row)
+
+        luders_note = QLabel("저탄소강 등의 항복점 현상 (상항복점→하항복점→평탄부)")
+        luders_note.setWordWrap(True)
+        luders_note.setStyleSheet(f"font-size: 10px; color: {text_muted};")
+        yield_layout.addWidget(luders_note)
+        layout.addWidget(yield_box)
+
+        # 파단 모드 (연성 / 취성)
+        frac_box = QGroupBox("파단 모드")
+        frac_layout = QVBoxLayout(frac_box)
+        frac_layout.setContentsMargins(10, 10, 10, 10)
+        frac_layout.setSpacing(6)
+
+        self._fracture_combo = QComboBox()
+        self._fracture_combo.addItem("자동 (연신율 기준)", "auto")
+        self._fracture_combo.addItem("연성 파단 (컵-콘)", "ductile")
+        self._fracture_combo.addItem("취성 파단 (벽개)", "brittle")
+        self._fracture_combo.currentIndexChanged.connect(lambda _i: self._update_timer.start())
+        frac_layout.addWidget(self._fracture_combo)
+
+        frac_note = QLabel("자동: 연신율 10% 미만이면 취성으로 판정")
+        frac_note.setWordWrap(True)
+        frac_note.setStyleSheet(f"font-size: 10px; color: {text_muted};")
+        frac_layout.addWidget(frac_note)
+        layout.addWidget(frac_box)
 
         # 범위 설정
         range_box = QGroupBox("값 범위")
@@ -266,10 +325,84 @@ class StrainExploreDialog(QDialog):
         self._canvas = FigureCanvas(self._canvas_fig)
         self._canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._canvas.mpl_connect("motion_notify_event", self._on_mouse_move)
+        self._canvas.mpl_connect("button_press_event", self._on_canvas_click)
+        zoom_hint = QLabel("드래그: 영역 확대 · 더블클릭: 원복")
+        zoom_hint.setStyleSheet("font-size: 10px; color: #94A3B8;")
+        zoom_hint.setAlignment(Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self._canvas)
+        layout.addWidget(zoom_hint)
         return panel
 
+    def _on_canvas_click(self, event):
+        # 더블클릭 → 전체 보기로 원복
+        if not (event.dblclick and event.inaxes is not None):
+            return
+        full = getattr(self, "_full_limits", None)
+        ax = getattr(self, "_ch_ax", None)
+        if ax is None or full is None:
+            return
+        try:
+            ax.set_xlim(full[0])
+            ax.set_ylim(full[1])
+        except Exception:
+            return
+        self._zoomed = False
+        self._zoom_limits = None
+        self._canvas.draw()
+        self._capture_bg()
+
+    def _on_zoom_select(self, eclick, erelease):
+        # 러버밴드 드래그 → 해당 영역으로 확대
+        if eclick.xdata is None or erelease.xdata is None:
+            return
+        if eclick.ydata is None or erelease.ydata is None:
+            return
+        x0, x1 = sorted([eclick.xdata, erelease.xdata])
+        y0, y1 = sorted([eclick.ydata, erelease.ydata])
+        if not (x1 > x0 and y1 > y0):
+            return
+        ax = getattr(self, "_ch_ax", None)
+        if ax is None:
+            return
+        try:
+            ax.set_xlim(x0, x1)
+            ax.set_ylim(y0, y1)
+        except Exception:
+            return
+        self._zoomed = True
+        self._zoom_limits = ((x0, x1), (y0, y1))
+        self._canvas.draw()
+        self._capture_bg()
+
     # ── 이벤트 핸들러 ────────────────────────────────────────────────────────
+
+    def _on_yield_mode_changed(self):
+        is_discontinuous = self._yield_mode() == "discontinuous"
+        self._luders_spin.setEnabled(is_discontinuous)
+        self._update_timer.start()
+
+    def _yield_mode(self):
+        combo = getattr(self, "_yield_combo", None)
+        if combo is None:
+            return "continuous"
+        data = combo.currentData()
+        return data if data in ("continuous", "discontinuous") else "continuous"
+
+    def _luders_value(self):
+        spin = getattr(self, "_luders_spin", None)
+        if spin is None:
+            return None
+        try:
+            return float(spin.value()) / 100.0
+        except (TypeError, ValueError):
+            return None
+
+    def _fracture_mode(self):
+        combo = getattr(self, "_fracture_combo", None)
+        if combo is None:
+            return "auto"
+        data = combo.currentData()
+        return data if data in ("auto", "ductile", "brittle") else "auto"
 
     def _on_column_changed(self):
         col = self._col_combo.currentData()
@@ -354,8 +487,43 @@ class StrainExploreDialog(QDialog):
             self._slider.blockSignals(False)
         self._update_timer.start()
 
+    def _capture_bg(self):
+        # blitting용 배경 복사 + 캡처 시점의 크기 키를 함께 저장
+        ax = getattr(self, "_ch_ax", None)
+        if ax is None:
+            self._ch_bg = None
+            self._ch_bg_key = None
+            return
+        try:
+            self._ch_bg = self._canvas.copy_from_bbox(ax.bbox)
+            w, h = self._canvas.get_width_height()
+            self._ch_bg_key = (w, h, tuple(ax.bbox.bounds))
+        except Exception:
+            self._ch_bg = None
+            self._ch_bg_key = None
+
+    def _ensure_fresh_bg(self):
+        # 창 크기/축 배치가 바뀌면 기존 복사본이 어긋나 잔상이 남는다.
+        # 사용 직전에 검증하고, 어긋났으면 다시 그려서 갱신한다.
+        ax = getattr(self, "_ch_ax", None)
+        if ax is None or self._ch_bg is None:
+            return False
+        try:
+            w, h = self._canvas.get_width_height()
+            key = (w, h, tuple(ax.bbox.bounds))
+        except Exception:
+            return False
+        if key != getattr(self, "_ch_bg_key", None):
+            try:
+                self._canvas.draw()
+            except Exception:
+                return False
+            self._capture_bg()
+            return self._ch_bg is not None
+        return True
+
     def _on_mouse_move(self, event):
-        if self._ch_v is None or self._ch_bg is None:
+        if self._ch_v is None or not self._ensure_fresh_bg():
             return
 
         if event.inaxes != self._ch_ax:
@@ -489,6 +657,19 @@ class StrainExploreDialog(QDialog):
             except Exception:
                 return
 
+        # 메인 화면과 동일한 고C 보정을 적용한다 (우회 예측 방지)
+        from src.engine.high_carbon_correction import (
+            apply_high_carbon_correction,
+            correction_badge,
+        )
+        mean, _corr = apply_high_carbon_correction(
+            np.asarray(mean, dtype=float), modified)
+        corr_note = ""
+        if _corr.get("applied") or _corr.get("refused"):
+            badge = correction_badge(_corr)
+            if badge:
+                corr_note = f"<br><span style='font-size:10px;'>⚠ {badge}</span>"
+
         self._result_label.setText(
             f"<b>예측 물성</b><br>"
             f"항복강도: <b>{mean[0]:.1f} MPa</b><br>"
@@ -496,9 +677,26 @@ class StrainExploreDialog(QDialog):
             f"연신율: <b>{mean[2]:.1f} %</b><br>"
             f"단면감소율: <b>{mean[3]:.1f} %</b>"
             f"{temp_note}"
+            f"{corr_note}"
         )
 
-        strain, stress, points, meta, segments = self._build_fn(mean, modified)
+        strain, stress, points, meta, segments = self._build_fn(
+            mean, modified,
+            yield_mode=self._yield_mode(),
+            luders_strain=self._luders_value(),
+            fracture_mode=self._fracture_mode(),
+        )
+        if isinstance(meta, dict) and meta.get("upper_yield_stress"):
+            self._result_label.setText(
+                self._result_label.text()
+                + f"<br>상항복점: <b>{meta['upper_yield_stress']:.1f} MPa</b>"
+                  f" (Lüders {meta.get('luders_strain', 0.0) * 100.0:.1f} %)"
+            )
+        if isinstance(meta, dict) and meta.get("fracture_mode") == "brittle":
+            self._result_label.setText(
+                self._result_label.text()
+                + "<br>파단 모드: <b>취성 (벽개형)</b>"
+            )
         col_label = _COLUMN_LABELS.get(col, col)
         self._render(strain, stress, points, segments, col_label, val)
 
@@ -527,9 +725,10 @@ class StrainExploreDialog(QDialog):
             "necking":   "#9B1C1C" if d else "#7F1D1D",
         }
         pt_colors = {
-            "Yield":    seg_colors["elastic"],
-            "UTS":      seg_colors["necking"],
-            "Fracture": "#1A7A4A" if d else "#14532D",
+            "Yield":      seg_colors["elastic"],
+            "UpperYield": "#A21CAF" if d else "#86198F",
+            "UTS":        seg_colors["necking"],
+            "Fracture":   "#1A7A4A" if d else "#14532D",
         }
 
         self._canvas_fig.clear()
@@ -592,7 +791,7 @@ class StrainExploreDialog(QDialog):
                     bbox=dict(boxstyle="square,pad=0.15", fc=ann_bg, ec="none", alpha=0.70))
 
         # ── 주요 점 마커 + annotation ─────────────────────────────────────────
-        offsets = {"Yield": (10, 40), "UTS": (-72, -38), "Fracture": (-84, -8)}
+        offsets = {"Yield": (10, 40), "UpperYield": (10, -32), "UTS": (-72, -38), "Fracture": (-84, -8)}
         for name, (xv, yv) in points.items():
             c = pt_colors[name]
             ax.scatter([xv], [yv], s=30, color=c, zorder=5, linewidths=0)
@@ -615,7 +814,22 @@ class StrainExploreDialog(QDialog):
 
         ax.set_xlim(0.0, frac_x * 1.08)
         ax.set_ylim(0.0, uts_y * 1.20)
-        self._canvas_fig.tight_layout(pad=0.4)
+        self._full_limits = (ax.get_xlim(), ax.get_ylim())
+        if getattr(self, "_zoomed", False) and getattr(self, "_zoom_limits", None):
+            # 슬라이더 등으로 재렌더해도 확대 상태 유지
+            try:
+                ax.set_xlim(self._zoom_limits[0])
+                ax.set_ylim(self._zoom_limits[1])
+            except Exception:
+                self._zoomed = False
+                self._zoom_limits = None
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            try:
+                self._canvas_fig.tight_layout(pad=0.4)
+            except Exception:
+                pass
         self._canvas.draw()
 
         # ── 크로스헤어 (blitting 유지) ────────────────────────────────────────
@@ -627,4 +841,26 @@ class StrainExploreDialog(QDialog):
             zorder=11, visible=False, animated=True,
         )
         self._ch_ax = ax
-        self._ch_bg = self._canvas.copy_from_bbox(ax.bbox)
+        self._capture_bg()
+
+        # ── 러버밴드 확대 셀렉터 (fig.clear()로 소멸하므로 렌더마다 재부착) ────
+        try:
+            old_selector = getattr(self, "_zoom_selector", None)
+            if old_selector is not None:
+                try:
+                    old_selector.disconnect_events()
+                except Exception:
+                    pass
+            from matplotlib.widgets import RectangleSelector
+            self._zoom_selector = RectangleSelector(
+                ax,
+                self._on_zoom_select,
+                useblit=False,
+                button=[1],
+                minspanx=5,
+                minspany=5,
+                spancoords="pixels",
+                interactive=False,
+            )
+        except Exception:
+            self._zoom_selector = None

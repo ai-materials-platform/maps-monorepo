@@ -545,6 +545,8 @@ function App() {
   const [isOpeningPrediction, setIsOpeningPrediction] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [platformStatus, setPlatformStatus] = useState({ available: false, error: "확인 중" });
+  const [simModel, setSimModel] = useState("pretrained");
+  const [simModels, setSimModels] = useState([{ name: "pretrained", model_type: "RF" }]);
   const [predictionUrl, setPredictionUrl] = useState("");
   const [process, setProcess] = useState({
     "Solution_treatment_temperature": 1050,
@@ -616,6 +618,13 @@ function App() {
         setPlatformStatus({ available: false, error: error.message });
         addLog("사전학습 모델 상태 확인 실패: 로컬 계산 모델 대기");
       });
+    // Flask 학습 모델 목록 (없으면 사전학습만)
+    fetch("http://127.0.0.1:5000/models")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data) => {
+        if (Array.isArray(data.models) && data.models.length) setSimModels(data.models);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -646,7 +655,8 @@ function App() {
       const raw = await postBackend("/predict", {
         composition: nextComposition,
         densityScale: nextDensity,
-        process
+        process,
+        model: simModel,
       });
 
       // Backend returns camelCase. Merge with defaults so no field is undefined.
@@ -1112,7 +1122,7 @@ function App() {
             ← 대시보드
           </button>
           <button
-            title="물성 예측 앱 열기"
+            title="통합 런처 열기 (물성 예측은 런처의 예측 탭에서)"
             disabled={isOpeningPrediction}
             onClick={async () => {
               if (isOpeningPrediction) return;
@@ -1120,11 +1130,11 @@ function App() {
               try {
                 const result = await window.desktopApi?.openPrediction?.();
                 if (result?.reused) {
-                  addLog(result.focused ? "물성 예측 창을 앞으로 가져왔습니다." : "물성 예측 앱이 이미 실행 중입니다.");
+                  addLog(result.focused ? "통합 런처 창을 앞으로 가져왔습니다." : "통합 런처가 이미 실행 중입니다.");
                 } else if (result && !result.started) {
-                  addLog(`물성 예측 앱 실행 실패: ${result.reason ?? "unknown"}`);
+                  addLog(`통합 런처 실행 실패: ${result.reason ?? "unknown"}`);
                 } else if (result && !result.focused) {
-                  addLog("물성 예측 앱을 시작했습니다. 창이 보이지 않으면 작업표시줄을 확인하세요.");
+                  addLog("통합 런처를 시작했습니다. 창이 보이지 않으면 작업표시줄을 확인하세요.");
                 }
               } finally {
                 setIsOpeningPrediction(false);
@@ -1291,6 +1301,21 @@ function App() {
             <div style={{ marginBottom: 2 }}>
               <ControlSlider label={`테스트 온도 ${process["Temperature (K)"]}K (${process["Temperature (K)"] - 273}°C)`} min={273} max={1422} value={process["Temperature (K)"]} onChange={(value) => updateProcess("Temperature (K)", value)} />
               <p style={{ margin: "2px 0 8px 2px", fontSize: 10, color: "var(--text-muted)", lineHeight: 1.4, fontFamily: "var(--mono)" }}>기계적 물성 측정 시험 온도. 293K=실온, 높을수록 강도↓ 연성↑ (ASTM E21 고온 인장)</p>
+            </div>
+            <div style={{ marginBottom: 2 }}>
+              <label style={{ display: "block", fontSize: 11, color: "var(--text-muted)", margin: "0 0 4px 2px" }}>예측 모델</label>
+              <select
+                value={simModel}
+                onChange={(e) => setSimModel(e.target.value)}
+                style={{ width: "100%", padding: "7px 8px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "inherit", fontSize: 12 }}
+              >
+                {simModels.map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.name === "pretrained" ? `사전학습 (${m.model_type || ""})` : `${m.name} (${m.model_type || ""})`}
+                  </option>
+                ))}
+              </select>
+              <p style={{ margin: "2px 0 8px 2px", fontSize: 10, color: "var(--text-muted)", lineHeight: 1.4 }}>학습 탭에서 만든 커스텀 모델로 시뮬레이션 (Flask :5000 필요)</p>
             </div>
             <button className="command primary" style={{ width: "100%", marginTop: 6 }} disabled={isPredicting} onClick={() => predictAlloy()}>
               {isPredicting ? <LoadingSpinner /> : <WandSparkles size={15} />}

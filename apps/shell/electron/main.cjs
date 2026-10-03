@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const fsp = fs.promises;
@@ -9,6 +9,10 @@ const path = require('path');
 
 const rootDir = path.resolve(__dirname, '..');
 const monorepoRootDir = path.resolve(rootDir, '..', '..');
+
+// 셸은 WebGL을 쓰지 않으므로 GPU를 끈다.
+// 이 머신에서 GPU 프로세스 크래시가 앱 종료로 번지는 것을 방지.
+app.commandLine.appendSwitch('disable-gpu');
 
 // Load .env (simple parser, honours existing env vars)
 // Checks exe directory first (packaged), then rootDir (dev)
@@ -584,6 +588,7 @@ ipcMain.handle('integration:startPredictionApp', async (_event, workspace) => {
     });
     predictionAppWorkspace = workspace || null;
     await waitForProcessBoot(predictionAppProcess, 'Prediction app');
+    logService('prediction-app', 'boot confirmed, returning to renderer');
   }
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
   return { started: true, path: predictionRepoDir };
@@ -815,6 +820,23 @@ app.whenReady().then(async () => {
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
+
+// 중복 실행 방지: 두 번째 인스턴스는 종료하고 기존 창을 앞으로
+const gotSingleLock = app.requestSingleInstanceLock();
+if (!gotSingleLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+    const target = wins[0];
+    if (target) {
+      try {
+        if (target.isMinimized()) target.restore();
+        target.focus();
+      } catch (_) {}
+    }
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

@@ -37,6 +37,17 @@ class InferenceMixin:
         mean = data_engine.scaler_y.inverse_transform(mean_scaled)[0]
         std = std_scaled[0] * data_engine.scaler_y.scale_
 
+        # --- 고탄소 영역 연신율 보정 (SAE 실측 추세, 강도는 그대로) ---
+        from src.engine.high_carbon_correction import (
+            apply_high_carbon_correction,
+            correction_badge,
+        )
+        mean, _correction = apply_high_carbon_correction(mean, input_dict)
+        if _correction.get("applied"):
+            std = list(std)
+            std[2] = float(std[2] * _correction["factor"])
+        _correction_badge = correction_badge(_correction)
+
         # --- 파생 분석 지표 계산 ---
         ys_uts_ratio = mean[0] / max(mean[1], 1.0)
         sd_index = mean[1] * mean[2]   # 강도×연성 지수 (MPa·%)
@@ -90,6 +101,10 @@ class InferenceMixin:
             f"예측 신뢰도: <b>{conf_tag}</b>"
             f" <span style='color:{note_color};'>(평균 CV {avg_cv:.1f}%)</span>"
         )
+        if _correction_badge:
+            result_text += (
+                f"<br><span style='color:{note_color};'>⚠ {_correction_badge}</span>"
+            )
         result_label.setText(result_text)
         self._render_prediction_chart(canvas, mean, std)
         if curve_canvas is not None and curve_label is not None:
@@ -102,8 +117,12 @@ class InferenceMixin:
                 prediction_state_attr,
                 {
                     "mean": np.array(mean, dtype=float),
-                    "std": np.array(std, dtype=float),
+                    "std": np.array(np.asarray(std), dtype=float),
                     "input_dict": dict(input_dict),
+                    "correction": {
+                        k: (float(v) if isinstance(v, (int, float)) else v)
+                        for k, v in _correction.items()
+                    },
                 },
             )
 

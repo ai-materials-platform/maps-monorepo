@@ -50,6 +50,64 @@ PLATFORM_TARGETS = [
     "Area_reduction (%)",
 ]
 
+# Flask 예측 API (학습된 커스텀 모델 포함). 도달 불가면 로컬 휴리스틱으로 폴백.
+FLASK_BASE = os.environ.get("AI_PREDICTION_API", "http://127.0.0.1:5000")
+
+
+def flask_platform_prediction(model_name, platform_input, timeout=20):
+    """Flask :5000 경유로 예측한다. (어댑터 입력용 dict, 원본 응답) 반환."""
+    if model_name in (None, "", "pretrained"):
+        endpoint = "/predict/pretrained"
+        payload = dict(platform_input)
+    else:
+        endpoint = "/predict/custom"
+        payload = {"model": model_name, "input": dict(platform_input)}
+    req = Request(
+        FLASK_BASE + endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    if data.get("status") != "success":
+        raise RuntimeError(data.get("error", "flask prediction failed"))
+
+    preds = data.get("predictions", {})
+
+    def _val(key):
+        item = preds.get(key, {}) or {}
+        try:
+            return float(item.get("value", 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _unc(key):
+        item = preds.get(key, {}) or {}
+        try:
+            return float(item.get("uncertainty", 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    keys = (("yield_stress_mpa", "yieldStressMpa"), ("uts_mpa", "utsMpa"),
+            ("elongation_pct", "elongationPercent"),
+            ("area_reduction_pct", "areaReductionPercent"))
+    return {
+        "yieldStressMpa": _val("yield_stress_mpa"),
+        "utsMpa": _val("uts_mpa"),
+        "elongationPercent": _val("elongation_pct"),
+        "areaReductionPercent": _val("area_reduction_pct"),
+        "uncertainty": {
+            "yieldStressMpa": _unc("yield_stress_mpa"),
+            "utsMpa": _unc("uts_mpa"),
+            "elongationPercent": _unc("elongation_pct"),
+            "areaReductionPercent": _unc("area_reduction_pct"),
+        },
+        "input": dict(platform_input),
+        "model": {"modelType": data.get("model_type", "?"), "via": "flask",
+                  "name": data.get("model_name", model_name or "pretrained")},
+        "correction": data.get("correction") or {},
+    }, data
+
 PLATFORM_MODEL_CACHE = None
 PLATFORM_MODEL_ERROR = None
 
@@ -504,7 +562,24 @@ class Handler(BaseHTTPRequestHandler):
             density_scale = float(body.get("densityScale", 0.62))
             scale = float(body.get("scale", 1.0))
             process = body.get("process", {})
+            model_name = body.get("model")
             if path == "/predict":
+                if model_name:
+                    # 학습 모델 지정 시 Flask(:5000) 우선, 실패하면 로컬로 폴백
+                    try:
+                        platform_input = build_platform_input(composition, process)
+                        plat, _raw = flask_platform_prediction(model_name, platform_input)
+                        adapted = platform_prediction_to_sim_prediction(
+                            composition, density_scale, plat)
+                        adapted["predictionSource"] = (
+                            f"flask model '{plat['model']['name']}' "
+                            f"({plat['model']['modelType']})")
+                        if (plat.get("correction") or {}).get("applied"):
+                            adapted["correctionApplied"] = True
+                        self.send_json(200, adapted)
+                        return
+                    except Exception:
+                        pass
                 self.send_json(200, predict_properties(composition, density_scale, process=process))
                 return
             if path == "/platform/predict":

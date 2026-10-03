@@ -432,7 +432,9 @@ class ChartsMixin:
         softening_factor = 1.0 - max(0.0, temperature_c - 20.0) * 0.00022
         return float(np.clip(193000.0 * softening_factor, 125000.0, 210000.0))
 
-    def _build_stress_strain_profile(self, mean, input_dict):
+    def _build_stress_strain_profile(self, mean, input_dict,
+                                       yield_mode="continuous", luders_strain=None,
+                                       fracture_mode="auto"):
         from scipy.interpolate import PchipInterpolator
 
         yield_stress = max(self._safe_float(mean[0]), 1.0)
@@ -453,34 +455,89 @@ class ChartsMixin:
         display_yield_strain = float(max(yield_strain, 0.05 * fracture_strain))
         display_yield_strain = float(min(display_yield_strain, fracture_strain * 0.10))
 
+        # ── 불연속 항복 (항복점 현상: 상항복점 → 하항복점 → Lüders 평탄부) ──────
+        # 저탄소강 등에서 Cottrell 분위기 때문에 나타나는 형태. hardening 시작점을
+        # 평탄부 끝으로 미뤄서 이후 구간 계산이 그대로 따라오게 한다.
+        discontinuous = str(yield_mode or "continuous").lower() in (
+            "discontinuous", "yield-point", "yield_point", "luders", "luders-plateau",
+        )
+        upper_yield_stress = None
+        lower_reached_x = None
+        luders = 0.0
+        if discontinuous:
+            try:
+                lud = float(luders_strain) if luders_strain is not None else 0.02
+            except (TypeError, ValueError):
+                lud = 0.02
+            luders = float(np.clip(lud, 0.002, max(0.003, fracture_strain * 0.35)))
+            upper_yield_stress = float(yield_stress * 1.05)
+        plateau_end = display_yield_strain + luders
+        hard_start = plateau_end if discontinuous else display_yield_strain
+        if fracture_strain <= hard_start + 0.01:
+            fracture_strain = hard_start + 0.01
+
         necking_ratio = 0.52 + 0.18 * (area_reduction_pct / 100.0)
-        uts_strain = display_yield_strain + (fracture_strain - display_yield_strain) * necking_ratio
-        uts_strain = float(np.clip(uts_strain, display_yield_strain + 0.006, fracture_strain - 0.003))
+        uts_strain = hard_start + (fracture_strain - hard_start) * necking_ratio
+        uts_strain = float(np.clip(uts_strain, hard_start + 0.006, fracture_strain - 0.003))
         if uts_strain >= fracture_strain:
             fracture_strain = uts_strain + 0.003
 
         fracture_stress_ratio = float(np.clip(0.80 - 0.42 * (area_reduction_pct / 100.0), 0.30, 0.80))
+        # ── 연성 / 취성 파단 분기 ─────────────────────────────────────────────
+        # 연성(컵-콘): 네킹이 길고 응력이 서서히 하락. 취성(벽개): UTS 직후 급락.
+        # auto 모드에서는 예측 연신율로 판정한다 (연신율 10% 기준).
+        fmode = str(fracture_mode or "auto").lower()
+        if fmode == "auto":
+            fmode = "brittle" if elongation_pct < 10.0 else "ductile"
+        brittle = (fmode == "brittle")
+        if brittle:
+            fracture_stress_ratio = min(fracture_stress_ratio, 0.20)
         fracture_stress = uts * fracture_stress_ratio
 
-        # ── Region A: Elastic — strictly linear (display_yield_strain) ──────
-        elastic_slope = yield_stress / max(display_yield_strain, 1e-6)
-        elastic_x = np.linspace(0.0, display_yield_strain, 60)
-        elastic_y = elastic_slope * elastic_x
+        # ── Region A: Elastic — strictly linear ─────────────────────────────
+        # 불연속 모드에서는 상항복점 피크 → 하항복점으로의 낙하 → Lüders 평탄부를
+        # elastic 배열에 그대로 이어붙인다 (PCHIP을 거치지 않아 단조 증가 유지).
+        if discontinuous:
+            elastic_slope = upper_yield_stress / max(display_yield_strain, 1e-6)
+            ex_lin = np.linspace(0.0, display_yield_strain, 60)
+            ey_lin = elastic_slope * ex_lin
+            # 상항복 → 하항복 낙하에 유한한 폭을 준다 (수직 낙하가 아닌 짧은 구간).
+            # 낙하폭 = Lüders 구간의 15% (너무 작아지지 않게 하한 보장).
+            drop_w = max(luders * 0.15, fracture_strain * 2e-4, 1e-6)
+            drop_end = display_yield_strain + drop_w
+            elastic_x = np.concatenate([
+                ex_lin,
+                [drop_end, plateau_end],
+            ])
+            elastic_y = np.concatenate([
+                ey_lin,
+                [yield_stress, yield_stress],
+            ])
+            lower_reached_x = drop_end
+        else:
+            elastic_slope = yield_stress / max(display_yield_strain, 1e-6)
+            elastic_x = np.linspace(0.0, display_yield_strain, 60)
+            elastic_y = elastic_slope * elastic_x
 
         # ── Region B: Strain Hardening — PCHIP, concave-down ─────────────────
         # rapid initial hardening, gradual saturation near UTS
         h_t     = np.array([0.0, 0.18, 0.42, 0.68, 0.86, 1.0])
         h_shape = np.array([0.0, 0.46, 0.74, 0.91, 0.97, 1.0])  # concave-down fractions
-        h_x = display_yield_strain + h_t * (uts_strain - display_yield_strain)
+        h_x = hard_start + h_t * (uts_strain - hard_start)
         h_y = yield_stress + (uts - yield_stress) * h_shape
         pchip_h = PchipInterpolator(h_x, h_y)
-        hardening_x = np.linspace(display_yield_strain, uts_strain, 120)
+        hardening_x = np.linspace(hard_start, uts_strain, 120)
         hardening_y = np.clip(pchip_h(hardening_x), yield_stress, uts)
 
         # ── Region C: Necking — PCHIP, accelerating drop (per spec) ──────────
-        # minimal drop immediately after UTS, increasing rate toward fracture
-        n_t     = np.array([0.0, 0.12, 0.32, 0.58, 0.82, 1.0])
-        n_shape = np.array([0.0, 0.015, 0.105, 0.34, 0.68, 1.0])
+        # minimal drop immediately after UTS, increasing rate toward fracture.
+        # 취성 모드에서는 UTS 직후 급락 (벽개형) — 하락분의 90% 이상을 앞쪽 1/3에 몰아넣는다.
+        if brittle:
+            n_t     = np.array([0.0, 0.08, 0.20, 0.34, 0.60, 1.0])
+            n_shape = np.array([0.0, 0.55, 0.80, 0.92, 0.98, 1.0])
+        else:
+            n_t     = np.array([0.0, 0.12, 0.32, 0.58, 0.82, 1.0])
+            n_shape = np.array([0.0, 0.015, 0.105, 0.34, 0.68, 1.0])
         n_x = uts_strain + n_t * (fracture_strain - uts_strain)
         n_y = uts - (uts - fracture_stress) * n_shape
         pchip_n = PchipInterpolator(n_x, n_y)
@@ -495,10 +552,13 @@ class ChartsMixin:
             "necking":   (necking_x, necking_y),
         }
         points = {
-            "Yield":    (display_yield_strain, yield_stress),
+            "Yield":    (lower_reached_x if discontinuous else display_yield_strain,
+                         yield_stress),
             "UTS":      (uts_strain,           uts),
             "Fracture": (fracture_strain,      fracture_stress),
         }
+        if discontinuous:
+            points["UpperYield"] = (display_yield_strain, upper_yield_stress)
         meta = {
             "yield_stress":        yield_stress,
             "uts":                 uts,
@@ -508,6 +568,10 @@ class ChartsMixin:
             "yield_strain":        yield_strain,          # physical (for info text)
             "uts_strain":          uts_strain,
             "fracture_strain":     fracture_strain,
+            "yield_mode":          "discontinuous" if discontinuous else "continuous",
+            "upper_yield_stress":  upper_yield_stress,
+            "luders_strain":       luders,
+            "fracture_mode":       "brittle" if brittle else "ductile",
         }
         return strain, stress, points, meta, segments
 
@@ -542,9 +606,10 @@ class ChartsMixin:
             "necking":   "#9B1C1C" if dark else "#7F1D1D",
         }
         pt_colors = {
-            "Yield":    seg_colors["elastic"],
-            "UTS":      seg_colors["necking"],
-            "Fracture": "#1A7A4A" if dark else "#14532D",
+            "Yield":      seg_colors["elastic"],
+            "UpperYield": "#A21CAF" if dark else "#86198F",
+            "UTS":        seg_colors["necking"],
+            "Fracture":   "#1A7A4A" if dark else "#14532D",
         }
         ref_col = "#555555" if dark else "#9CA3AF"
         ann_bg  = colors["panel_bg"]
@@ -586,7 +651,7 @@ class ChartsMixin:
                     bbox=dict(boxstyle="square,pad=0.15", fc=ann_bg, ec="none", alpha=0.70))
 
         # 주요 점 annotation
-        offsets = {"Yield": (10, 40), "UTS": (-72, -38), "Fracture": (-84, -8)}
+        offsets = {"Yield": (10, 40), "UpperYield": (10, -32), "UTS": (-72, -38), "Fracture": (-84, -8)}
         for name, (x_val, y_val) in points.items():
             c = pt_colors[name]
             ax.scatter([x_val], [y_val], s=30, color=c, zorder=5, linewidths=0)

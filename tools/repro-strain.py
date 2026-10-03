@@ -57,7 +57,8 @@ def estimate_modulus(t_k):
     return 200000.0 * (1.0 - 0.0004 * max(t - 293.0, 0.0))
 
 
-def build_fn(mean_vec, input_dict):
+def build_fn(mean_vec, input_dict, yield_mode="continuous", luders_strain=None,
+               fracture_mode="auto"):
     from src.gui.mixins.charts_mixin import ChartsMixin
 
     class Stub:
@@ -73,7 +74,10 @@ def build_fn(mean_vec, input_dict):
             softening_factor = 1.0 - max(0.0, temperature_c - 20.0) * 0.00022
             return float(np.clip(193000.0 * softening_factor, 125000.0, 210000.0))
 
-    return ChartsMixin._build_stress_strain_profile(Stub(), mean_vec, input_dict)
+    return ChartsMixin._build_stress_strain_profile(
+        Stub(), mean_vec, input_dict,
+        yield_mode=yield_mode, luders_strain=luders_strain,
+        fracture_mode=fracture_mode)
 
 
 print("creating QApplication...", flush=True)
@@ -87,7 +91,123 @@ try:
     dlg = StrainExploreDialog(model_engine, data_engine, base, build_fn, None)
     dlg.show()
     app.processEvents()
-    print("DIALOG OK", flush=True)
+    print("DIALOG OK (continuous)", flush=True)
+
+    # 불연속항복 경로: 엔진 직접 검증
+    from src.gui.mixins.charts_mixin import ChartsMixin
+
+    class Stub:
+        def _safe_float(self, value, default=0.0):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return float(default)
+
+        def _estimate_elastic_modulus(self, temperature_k):
+            temperature_k = self._safe_float(temperature_k, 293.15)
+            temperature_c = temperature_k - 273.15
+            softening_factor = 1.0 - max(0.0, temperature_c - 20.0) * 0.00022
+            return float(np.clip(193000.0 * softening_factor, 125000.0, 210000.0))
+
+    for lud in (None, 0.005, 0.05):
+        s2, t2, p2, m2, g2 = ChartsMixin._build_stress_strain_profile(
+            Stub(), mean, base, yield_mode="discontinuous", luders_strain=lud)
+        assert np.all(np.diff(s2) > 0), "x must be strictly increasing"
+        assert "UpperYield" in p2, "missing UpperYield point"
+        assert p2["Yield"][0] > p2["UpperYield"][0], "drop must span finite strain"
+        peak_idx = int(np.argmax(t2[:80]))
+        assert t2[peak_idx] > p2["Yield"][1], "no upper-yield peak"
+        print(f"DISCONTINUOUS OK lud={lud} upper=({p2['UpperYield'][0]:.4f}, {p2['UpperYield'][1]:.1f}) "
+              f"lower=({p2['Yield'][0]:.4f}, {p2['Yield'][1]:.1f}) meta_mode={m2['yield_mode']}", flush=True)
+
+    # 구버전 호환: 기본 호출(연속)이 그대로 동작
+    s0, t0, p0, m0, _g0 = ChartsMixin._build_stress_strain_profile(Stub(), mean, base)
+    assert "UpperYield" not in p0 and m0["yield_mode"] == "continuous"
+    assert m0["fracture_mode"] == "ductile"  # mean 연신율 64.9% → 자동 연성
+    print("CONTINUOUS-DEFAULT OK", flush=True)
+
+    # 연성/취성 분기
+    low_el = np.array([mean[0], mean[1], 4.0, mean[3]])  # 연신율 4% → 자동 취성
+    _s, t_b, _p, m_b, _g = ChartsMixin._build_stress_strain_profile(
+        Stub(), low_el, base, fracture_mode="auto")
+    assert m_b["fracture_mode"] == "brittle", m_b
+    _s, t_d, _p, m_d, _g = ChartsMixin._build_stress_strain_profile(
+        Stub(), low_el, base, fracture_mode="ductile")
+    assert m_d["fracture_mode"] == "ductile"
+    # 취성은 UTS 직후 급락: 앞쪽 1/3 구간의 하락량이 연성보다 클 것
+    uts_i = int(np.argmax(t_b))
+    tail_b = t_b[uts_i:]
+    tail_d = t_d[uts_i:]
+    n3_b = len(tail_b) // 3
+    drop_b = (tail_b[0] - tail_b[n3_b]) / max(tail_b[0] - tail_b[-1], 1e-9)
+    drop_d = (tail_d[0] - tail_d[n3_b]) / max(tail_d[0] - tail_d[-1], 1e-9)
+    assert drop_b > drop_d, (drop_b, drop_d)
+    assert np.all(np.diff(_s) > 0)
+    print(f"FRACTURE OK brittle_drop={drop_b:.2f} ductile_drop={drop_d:.2f}", flush=True)
+
+    # 다이얼로그 콤보 전환 경로
+    dlg._yield_combo.setCurrentIndex(1)
+    app.processEvents()
+    dlg._update_curve()  # 타이머 대기 없이 즉시 렌더 (UpperYield 마커 경로 커버)
+    app.processEvents()
+    print("DIALOG COMBO OK mode=", dlg._yield_mode(), flush=True)
+
+    # 러버밴드 확대/원복 경로
+    class FakeEv:
+        def __init__(self, x, y):
+            self.xdata = x
+            self.ydata = y
+
+    dlg._on_zoom_select(FakeEv(0.02, 200.0), FakeEv(0.06, 300.0))
+    assert dlg._zoomed is True
+    xl = dlg._ch_ax.get_xlim()
+    assert abs(xl[0] - 0.02) < 1e-9 and abs(xl[1] - 0.06) < 1e-9, xl
+    print("ZOOM-IN OK xlim=", xl, flush=True)
+
+    class FakeClick:
+        dblclick = True
+        inaxes = dlg._ch_ax
+
+    dlg._on_canvas_click(FakeClick())
+    assert dlg._zoomed is False
+    xl2 = dlg._ch_ax.get_xlim()
+    assert xl2 == dlg._full_limits[0], (xl2, dlg._full_limits)
+    print("ZOOM-RESET OK xlim=", xl2, flush=True)
+
+    # 확대 상태 유지 렌더 (슬라이더 이동 시 줌 풀림 방지)
+    dlg._on_zoom_select(FakeEv(0.02, 200.0), FakeEv(0.06, 300.0))
+    dlg._update_curve()
+    assert dlg._ch_ax.get_xlim()[1] <= 0.0600001
+    print("ZOOM-PERSIST OK", flush=True)
+
+    # 리사이즈 후 크로스헤어 배경 자동 갱신 (첫 렌더 잔상 회귀 방지)
+    class FakeMotion:
+        inaxes = dlg._ch_ax
+        xdata = 0.1
+        ydata = 400.0
+
+    old_key = dlg._ch_bg_key
+    dlg.resize(1250, 750)
+    app.processEvents()
+    dlg._on_mouse_move(FakeMotion())
+    assert dlg._ch_bg_key is not None and dlg._ch_bg_key != old_key, (old_key, dlg._ch_bg_key)
+    print("BG-REFRESH OK key=", dlg._ch_bg_key[0], flush=True)
+
+    # 탐색기 내 고C 보정 경로 (메인 화면과 동일 값 나와야 함)
+    dlg._base_input["C"] = "1.5"
+    c_idx = dlg._col_combo.findData("C")
+    assert c_idx >= 0
+    dlg._col_combo.setCurrentIndex(c_idx)
+    app.processEvents()
+    frac = (1.5 - 0.01) / (2.0 - 0.01)
+    dlg._slider.setValue(int(frac * 1000))
+    dlg._update_curve()
+    label = dlg._result_label.text()
+    assert "고C" in label, label[-120:]
+    import re as _re
+    m_el = _re.search(r"연신율: <b>([\d.]+)", label)
+    assert m_el and float(m_el.group(1)) < 10.0, label[-120:]
+    print("EXPLORER-CORRECTION OK El=", m_el.group(1), flush=True)
 except Exception:
     traceback.print_exc()
     print("DIALOG FAILED", flush=True)
