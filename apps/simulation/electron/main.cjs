@@ -4,6 +4,14 @@ const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 
+// 시뮬 전용 프로필 디렉터리 (셸과 공유 금지 — 공유 시 single-instance 락 충돌로
+// 나중에 뜨는 쪽이 조용히 종료됨)
+try {
+  const simProfile = path.join(app.getPath("appData"), "MAPS-simulation");
+  fs.mkdirSync(simProfile, { recursive: true });
+  app.setPath("userData", simProfile);
+} catch (_) {}
+
 const rootDir = path.resolve(__dirname, "..");
 let backendProcess = null;
 let shellProcess = null;
