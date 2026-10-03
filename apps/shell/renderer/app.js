@@ -268,12 +268,74 @@ function loadSettingsLogs() {
 async function loadResults() {
   const content = document.getElementById('rsContent');
   content.innerHTML = '<div class="rs-empty">불러오는 중...</div>';
+  let pyqtHtml = '';
   try {
     const projects = await window.integrationApi.listResults();
-    renderResults(projects);
+    const tmp = document.createElement('div');
+    renderResultsInto(tmp, projects);
+    pyqtHtml = tmp.innerHTML;
   } catch (err) {
-    content.innerHTML = `<div class="rs-empty">오류: ${err.message}</div>`;
+    pyqtHtml = `<div class="rs-empty">오류: ${escHtml(err.message)}</div>`;
   }
+  let apiHtml = '';
+  try {
+    const res = await fetch('http://127.0.0.1:5000/workspaces');
+    const data = await res.json().catch(() => ({}));
+    apiHtml = renderApiWorkspaces(data.workspaces || []);
+  } catch (_) {
+    apiHtml = '<div class="rs-empty">API 서버(:5000) 미연결 — 웹 저장소를 보려면 Flask를 실행하세요.</div>';
+  }
+  content.innerHTML =
+    `<div class="section-heading"><h3>데스크톱 저장소 (PyQt)</h3></div>${pyqtHtml}` +
+    `<div class="section-heading" style="margin-top:1rem;"><h3>웹 저장소 (Flask)</h3></div>${apiHtml}`;
+}
+
+function renderApiWorkspaces(items) {
+  if (!items.length) return '<div class="rs-empty">저장된 웹 워크스페이스가 없습니다.</div>';
+  return items.map((w) => (
+    `<div class="rs-save-row"><div class="rs-save-info">` +
+    `<div class="rs-save-name">${escHtml(w.name)}</div>` +
+    `<div class="rs-save-meta">${escHtml(w.saved_date || '—')}${w.has_prediction ? '&nbsp;&nbsp;<span class="rs-r2">예측 포함</span>' : ''}</div>` +
+    `</div><button class="rs-dl-btn" data-ws-load="${encodeURIComponent(w.name)}">불러오기</button>` +
+    `<button class="rs-dl-btn" data-ws-del="${encodeURIComponent(w.name)}">삭제</button></div>`
+  )).join('');
+}
+
+async function loadApiWorkspace(name) {
+  try {
+    const res = await fetch(`http://127.0.0.1:5000/workspaces/${encodeURIComponent(name)}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    const ws = data.workspace || {};
+    const input = ws.input || {};
+    document.querySelectorAll('[data-pd-key]').forEach((node) => {
+      if (input[node.dataset.pdKey] !== undefined) node.value = input[node.dataset.pdKey];
+    });
+    if (typeof initPredictionPage === 'function') initPredictionPage();
+    switchPage('prediction');
+    showToast(`'${name}' 불러옴 — 예측 실행을 눌러주세요.`);
+  } catch (err) {
+    showToast(err.message || String(err), 'error');
+  }
+}
+
+async function deleteApiWorkspace(name) {
+  if (!confirm(`'${name}' 워크스페이스를 삭제하시겠습니까?`)) return;
+  try {
+    const res = await fetch(`http://127.0.0.1:5000/workspaces/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    showToast('삭제했습니다.');
+    loadResults();
+  } catch (err) {
+    showToast(err.message || String(err), 'error');
+  }
+}
+
+function renderResultsInto(box, projects) {
+  const content = document.getElementById('rsContent');
+  renderResults(projects);
+  box.innerHTML = content.innerHTML;
+  content.innerHTML = '';
 }
 
 function renderResults(projects) {
@@ -550,14 +612,20 @@ function bindEvents() {
     btn.addEventListener('click', () => switchPage(btn.dataset.page));
   });
 
-  // Results repository — Excel download button
+  // Results repository — Excel download button + API workspace buttons
   document.getElementById('rsContent').addEventListener('click', (e) => {
     const btn = e.target.closest('.rs-dl-btn[data-project]');
-    if (!btn) return;
-    downloadResultExcel(
-      decodeURIComponent(btn.dataset.project),
-      decodeURIComponent(btn.dataset.save)
-    );
+    if (btn) {
+      downloadResultExcel(
+        decodeURIComponent(btn.dataset.project),
+        decodeURIComponent(btn.dataset.save)
+      );
+      return;
+    }
+    const loadBtn = e.target.closest('[data-ws-load]');
+    if (loadBtn) { loadApiWorkspace(decodeURIComponent(loadBtn.dataset.wsLoad)); return; }
+    const delBtn = e.target.closest('[data-ws-del]');
+    if (delBtn) { deleteApiWorkspace(decodeURIComponent(delBtn.dataset.wsDel)); return; }
   });
   document.getElementById('rsRefreshBtn').addEventListener('click', loadResults);
   document.getElementById('allProjectsBtn').addEventListener('click', openAllProjectsModal);

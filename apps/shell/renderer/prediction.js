@@ -45,7 +45,10 @@ function initPredictionPage() {
 
   document.getElementById('pdRunBtn').addEventListener('click', runPrediction);
   document.getElementById('pdCurveBtn').addEventListener('click', runCurve);
+  document.getElementById('pdWsSaveBtn').addEventListener('click', saveWorkspace);
 }
+
+let _pdLast = null;
 
 function collectPredictionInput() {
   const input = {};
@@ -83,6 +86,7 @@ async function runPrediction() {
       throw new Error(err.error || `HTTP ${res.status}`);
     }
     const data = await res.json();
+    _pdLast = { input: collectPredictionInput(), predictions: data.predictions, correction: data.correction };
     renderPredictionResults(box, data);
     setPdStatus(`완료 (${escHtml(data.model_type || '')})`, false);
   } catch (e) {
@@ -181,4 +185,32 @@ function renderCurve(box, curve) {
     `<text x="12" y="${PAD_T + 8}" font-size="11" fill="#64748b">Stress (MPa)</text>` +
     `</svg>` +
     (modeLine ? `<div class="pd-modeline">${escHtml(modeLine)}</div>` : '');
+}
+
+async function saveWorkspace() {
+  if (!_pdLast) { setPdStatus('먼저 예측을 실행하세요.', true); return; }
+  const nameInput = document.getElementById('pdWsName');
+  const name = (nameInput.value || '').trim() || `Prediction_${Date.now()}`;
+  setPdStatus('저장 중...', false);
+  try {
+    const res = await fetch(`${PREDICTION_API}/workspaces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        input: _pdLast.input,
+        predictions: _pdLast.predictions,
+        correction: _pdLast.correction,
+        curve_params: {
+          yield_mode: document.getElementById('pdYieldMode').value,
+          fracture_mode: document.getElementById('pdFractureMode').value,
+        },
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    setPdStatus(`저장됨: ${name}`, false);
+  } catch (e) {
+    setPdStatus(e.message || String(e), true);
+  }
 }

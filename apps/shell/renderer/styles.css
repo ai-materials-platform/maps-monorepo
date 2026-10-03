@@ -770,4 +770,5 @@ h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0; line-heigh
 .pd-table-wrap { overflow: auto; max-height: 380px; border: 1px solid var(--line); border-radius: 8px; }
 .pd-table-wrap .pd-table th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
 #trFile { font-size: .82rem; color: var(--muted); max-width: 220px; }
+#pdWsName { padding: .35rem .5rem; font-size: .85rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); width: 200px; }
 .pd-curve-bar select, .pd-grid select { padding: .35rem .5rem; font-size: .85rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); }
