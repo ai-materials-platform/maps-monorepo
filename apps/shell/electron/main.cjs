@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const fsp = fs.promises;
@@ -9,6 +9,10 @@ const path = require('path');
 
 const rootDir = path.resolve(__dirname, '..');
 const monorepoRootDir = path.resolve(rootDir, '..', '..');
+
+// 셸은 WebGL을 쓰지 않으므로 GPU를 끈다.
+// 이 머신에서 GPU 프로세스 크래시가 앱 종료로 번지는 것을 방지.
+app.commandLine.appendSwitch('disable-gpu');
 
 // Load .env (simple parser, honours existing env vars)
 // Checks exe directory first (packaged), then rootDir (dev)
