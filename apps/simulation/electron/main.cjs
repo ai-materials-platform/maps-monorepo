@@ -288,7 +288,7 @@ async function openShell(win) {
     return { started: true, path: shellDir, focused };
   }
   return { started: true, path: shellDir, focused: false };
-});
+}
 
 ipcMain.handle("simulation:saveToWorkspace", async (_event, { alloyName, prediction, simulation, composition, process: proc }) => {
   const workspacesRoot = process.env.AI_MAPS_WORKSPACE_ROOT
