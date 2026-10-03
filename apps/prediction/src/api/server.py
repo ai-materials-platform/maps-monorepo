@@ -23,7 +23,8 @@ TARGET_NAMES = ['yield_stress_mpa', 'uts_mpa', 'elongation_pct', 'area_reduction
 
 # 실행 위치와 무관하게 고정: 업로드/모델은 apps/prediction 아래,
 # 워크스페이스는 모노레포 루트 projects/
-APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+# (__file__ = apps/prediction/src/api/server.py → 2단계 위가 apps/prediction)
+APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 UPLOAD_FOLDER = os.path.join(APP_DIR, 'data', 'uploads')
 MODELS_DIR = os.path.join(APP_DIR, 'models')
 
