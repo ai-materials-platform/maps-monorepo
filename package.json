@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "install:all": "npm install --workspaces",
+    "dev": "node tools/dev.mjs",
     "dev:shell": "npm run dev --workspace=ai-materials-integrated-platform",
     "dev:simulation": "npm run dev --workspace=ai-materials-discovery-platform-simulation",
     "dev:prediction": "python apps/prediction/main.py",
