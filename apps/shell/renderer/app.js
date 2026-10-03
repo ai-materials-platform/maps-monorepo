@@ -463,8 +463,7 @@ async function deleteProject(id) {
 }
 
 /* ── Launch existing project (no dialog) ── */
-async function invokeWithTimeout(promise, ms, label) {
-  let timer;
+async function invokeWithTimeout(promise, ms, label) {  let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${label} 시간 초과 (${Math.round(ms / 1000)}s)`)), ms);
   });
@@ -484,7 +483,8 @@ async function launchApp(projectName, type) {
     if (isSim) {
       await invokeWithTimeout(window.integrationApi.startSimulationApp(), 60000, '시뮬레이션 실행');
     } else {
-      await invokeWithTimeout(window.integrationApi.startPredictionApp(projectName), 60000, '물성 예측 실행');
+      // PyQt 은퇴: 웹 예측 탭으로 이동 (별도 프로세스 기동 안 함)
+      switchPage('prediction');
     }
     setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
     showToast(`${isSim ? '시뮬레이션' : '물성 예측'} 플랫폼을 실행했습니다.`);
@@ -506,14 +506,10 @@ async function openPredictionPlatform() {
 
   const MIN_MS = 2800, start = Date.now();
   showLoading(`"${projectName}" — 물성 예측 플랫폼 실행 중...`);
-  try {
-    await invokeWithTimeout(window.integrationApi.startPredictionApp(projectName), 60000, '물성 예측 실행');
-    setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
-    showToast('물성 예측 플랫폼 실행 요청을 보냈습니다.');
-  } catch (err) {
-    hideLoading();
-    showToast(err.message || String(err), 'error');
-  }
+  // PyQt 은퇴: 웹 예측 탭으로 이동 (별도 프로세스 기동 안 함)
+  switchPage('prediction');
+  setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
+  showToast('웹 물성 예측으로 이동했습니다.');
 }
 
 async function openSimulationPlatform() {

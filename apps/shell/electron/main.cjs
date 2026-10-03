@@ -817,6 +817,23 @@ app.whenReady().then(async () => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
+// 중복 실행 방지: 두 번째 인스턴스는 종료하고 기존 창을 앞으로
+const gotSingleLock = app.requestSingleInstanceLock();
+if (!gotSingleLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+    const target = wins[0];
+    if (target) {
+      try {
+        if (target.isMinimized()) target.restore();
+        target.focus();
+      } catch (_) {}
+    }
+  });
+}
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
