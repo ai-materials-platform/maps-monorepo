@@ -56,3 +56,8 @@ s, r = call('DELETE', '/workspaces/smoke-test-ws')
 print('WS-DELETE:', s, r.get('status') if isinstance(r, dict) else r)
 s, r = call('GET', '/workspaces/smoke-test-ws')
 print('WS-GONE:', s, (r.get('error') or '')[:20] if isinstance(r, dict) else r)
+s, r = call('GET', '/models')
+models = r.get('models', []) if isinstance(r, dict) else []
+print('MODELS:', s, [m['name'] for m in models])
+s, r = call('POST', '/predict/custom', {'model': 'no-such-model', 'input': dict(BASE_INPUT)})
+print('CUSTOM-404:', s, (r.get('error') or '')[:30] if isinstance(r, dict) else r)

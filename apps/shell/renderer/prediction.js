@@ -46,9 +46,28 @@ function initPredictionPage() {
   document.getElementById('pdRunBtn').addEventListener('click', runPrediction);
   document.getElementById('pdCurveBtn').addEventListener('click', runCurve);
   document.getElementById('pdWsSaveBtn').addEventListener('click', saveWorkspace);
+  loadModelList();
 }
 
 let _pdLast = null;
+let _pdModels = [{ name: 'pretrained', model_type: 'RF' }];
+
+async function loadModelList() {
+  const sel = document.getElementById('pdModel');
+  try {
+    const res = await fetch(`${PREDICTION_API}/models`);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && Array.isArray(data.models) && data.models.length) {
+      _pdModels = data.models;
+    }
+  } catch (_) {}
+  sel.innerHTML = _pdModels.map((m) => {
+    const extra = m.name === 'pretrained'
+      ? `사전학습 (${escHtml(m.model_type || '')})`
+      : `${escHtml(m.name)} (${escHtml(m.model_type || '')})`;
+    return `<option value="${escHtml(m.name)}">${extra}</option>`;
+  }).join('');
+}
 
 function collectPredictionInput() {
   const input = {};
@@ -76,11 +95,18 @@ async function runPrediction() {
   btn.disabled = true;
   setPdStatus('예측 중...', false);
   try {
-    const res = await fetch(`${PREDICTION_API}/predict/pretrained`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(collectPredictionInput()),
-    });
+    const modelName = document.getElementById('pdModel').value || 'pretrained';
+    const isPretrained = modelName === 'pretrained';
+    const res = await fetch(
+      isPretrained ? `${PREDICTION_API}/predict/pretrained` : `${PREDICTION_API}/predict/custom`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isPretrained
+          ? collectPredictionInput()
+          : { model: modelName, input: collectPredictionInput() }),
+      }
+    );
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || `HTTP ${res.status}`);

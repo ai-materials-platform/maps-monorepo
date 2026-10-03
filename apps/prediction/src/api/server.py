@@ -21,11 +21,17 @@ from src.engine.high_carbon_correction import (
 
 TARGET_NAMES = ['yield_stress_mpa', 'uts_mpa', 'elongation_pct', 'area_reduction_pct']
 
+# 실행 위치와 무관하게 고정: 업로드/모델은 apps/prediction 아래,
+# 워크스페이스는 모노레포 루트 projects/
+APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+UPLOAD_FOLDER = os.path.join(APP_DIR, 'data', 'uploads')
+MODELS_DIR = os.path.join(APP_DIR, 'models')
+
 app = Flask(__name__)
 CORS(app)
 
-UPLOAD_FOLDER = 'data/uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(MODELS_DIR, exist_ok=True)
 
 data_engine = DataEngine(None)
 model_engine = None
@@ -38,8 +44,8 @@ pretrained_meta = {}
 
 def _load_saved_resources():
     global data_engine, model_engine
-    engine_path = 'models/data_engine.pkl'
-    model_path = 'models/material_model.pkl'
+    engine_path = os.path.join(MODELS_DIR, 'data_engine.pkl')
+    model_path = os.path.join(MODELS_DIR, 'material_model.pkl')
     if os.path.exists(engine_path):
         data_engine = joblib.load(engine_path)
     if os.path.exists(model_path):
@@ -237,8 +243,20 @@ def train():
         model_engine.train(X_train, y_train)
 
         os.makedirs('models', exist_ok=True)
-        model_engine.save('models/material_model.pkl')
-        joblib.dump(data_engine, 'models/data_engine.pkl')
+        model_engine.save(os.path.join(MODELS_DIR, 'material_model.pkl'))
+        joblib.dump(data_engine, os.path.join(MODELS_DIR, 'data_engine.pkl'))
+
+        # 레지스트리: 타임스탬프 이름으로 모델+데이터엔진 쌍 보관 (재시작 후에도 선택 가능)
+        stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        reg_name = f"custom-{model_type}-{stamp}"
+        model_engine.save(os.path.join(MODELS_DIR, f'{reg_name}.model.pkl'))
+        joblib.dump(data_engine, os.path.join(MODELS_DIR, f'{reg_name}.data.pkl'))
+        reg_meta = {
+            'name': reg_name,
+            'model_type': model_type,
+            'saved_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'samples': int(len(X_train)),
+        }
 
         mean_scaled, _ = model_engine.predict(X_test)
         y_pred = data_engine.inverse_transform_y(mean_scaled)
@@ -252,8 +270,109 @@ def train():
             name: {'r2': round(float(r2[i]), 4), 'mae': round(float(mae[i]), 2)}
             for i, name in enumerate(target_names)
         }
+        reg_meta['metrics'] = metrics
+        try:
+            with open(os.path.join(MODELS_DIR, f'{reg_name}.meta.json'), 'w', encoding='utf-8') as f:
+                json.dump(reg_meta, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
-        return jsonify({'status': 'success', 'model_type': model_type, 'metrics': metrics})
+        return jsonify({'status': 'success', 'model_type': model_type,
+                        'metrics': metrics, 'model_name': reg_name})
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Model registry (학습된 커스텀 모델 목록/선택)
+# ---------------------------------------------------------------------------
+
+_custom_cache = {}
+
+
+def _list_custom_models():
+    items = []
+    try:
+        names = sorted(os.listdir(MODELS_DIR))
+    except Exception:
+        return items
+    for fname in names:
+        if not fname.endswith('.meta.json') or not fname.startswith('custom-'):
+            continue
+        name = fname[:-len('.meta.json')]
+        model_path = os.path.join(MODELS_DIR, name + '.model.pkl')
+        data_path = os.path.join(MODELS_DIR, name + '.data.pkl')
+        if not (os.path.exists(model_path) and os.path.exists(data_path)):
+            continue
+        try:
+            with open(os.path.join(MODELS_DIR, fname), 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+        except Exception:
+            meta = {}
+        items.append({
+            'name': name,
+            'model_type': meta.get('model_type', '?'),
+            'saved_date': meta.get('saved_date', ''),
+            'samples': meta.get('samples', 0),
+            'metrics': meta.get('metrics', {}),
+        })
+    items.sort(key=lambda m: m['name'], reverse=True)
+    return items
+
+
+def _load_custom_model(name):
+    """(model_engine, data_engine) 반환. 없으면 (None, None)."""
+    if name in _custom_cache:
+        return _custom_cache[name]
+    model_path = os.path.join(MODELS_DIR, name + '.model.pkl')
+    data_path = os.path.join(MODELS_DIR, name + '.data.pkl')
+    if '..' in name or '/' in name or '\\' in name:
+        return None, None
+    if not (os.path.exists(model_path) and os.path.exists(data_path)):
+        return None, None
+    try:
+        model = ModelEngine(model_type='RF', output_dim=4)
+        model.load(model_path)
+        data = joblib.load(data_path)
+    except Exception:
+        return None, None
+    _custom_cache[name] = (model, data)
+    return model, data
+
+
+@app.route('/models', methods=['GET'])
+def list_models():
+    ok, _msg = _load_pretrained_bundle()
+    items = []
+    if ok:
+        items.append({
+            'name': 'pretrained',
+            'model_type': pretrained_meta.get('model_type', 'RF'),
+            'saved_date': 'bundled',
+            'samples': None,
+            'metrics': {k: pretrained_meta.get(k) for k in ('r2_avg', 'mae_avg')},
+        })
+    items.extend(_list_custom_models())
+    return jsonify({'status': 'success', 'models': items})
+
+
+@app.route('/predict/custom', methods=['POST'])
+def predict_custom():
+    body = request.json or {}
+    name = body.get('model', '')
+    data = body.get('input') or {}
+    if not name:
+        return jsonify({'error': 'model 이름을 지정하세요.'}), 400
+    model, engine_data = _load_custom_model(name)
+    if model is None:
+        return jsonify({'error': f'모델을 찾을 수 없습니다: {name}'}), 404
+    try:
+        results, _mean, correction = _predict_with(model, engine_data, data)
+        return jsonify({
+            'status': 'success', 'model_name': name, 'model_type': model.model_type,
+            'predictions': results, 'correction': correction,
+            'correction_note': correction_badge(correction),
+        })
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500
 

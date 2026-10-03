@@ -76,7 +76,8 @@ async function trTrain() {
       model_type: document.getElementById('trModel').value,
     });
     renderTrainMetrics(box, data);
-    trSetInfo('trTrainInfo', `완료 (${data.model_type})`, false);
+    trSetInfo('trTrainInfo', `완료 (${data.model_type}) — 예측 탭에서 선택 가능`, false);
+    if (typeof loadModelList === 'function') loadModelList();
   } catch (e) {
     trSetInfo('trTrainInfo', apiDown(e), true);
     box.innerHTML = '<div class="rs-empty">학습 실패: ' + escHtml(e.message || e) + '</div>';
