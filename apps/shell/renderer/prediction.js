@@ -175,7 +175,7 @@ function renderBarChart(preds) {
       `<line x1="${(cx - 9).toFixed(1)}" y1="${yTop.toFixed(1)}" x2="${(cx + 9).toFixed(1)}" y2="${yTop.toFixed(1)}" stroke="#111827" stroke-width="1.6"/>` +
       `<line x1="${(cx - 9).toFixed(1)}" y1="${yBot.toFixed(1)}" x2="${(cx + 9).toFixed(1)}" y2="${yBot.toFixed(1)}" stroke="#111827" stroke-width="1.6"/>` +
       `<rect x="${(cx - 52).toFixed(1)}" y="${(lblY - 13).toFixed(1)}" width="104" height="17" rx="4" fill="#ffffff" opacity="0.9"/>` +
-      `<text x="${cx.toFixed(1)}" y="${lblY.toFixed(1)}" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">${vals[i].toFixed(1)}${e ? ' ± ' + e.toFixed(1) : ''}</text>` +
+      `<text x="${cx.toFixed(1)}" y="${lblY.toFixed(1)}" font-size="11" font-weight="600" fill="#111827" text-anchor="middle">${vals[i].toFixed(1)}${e ? ' ± ' + e.toFixed(1) : ''}</text>` +
       `<text x="${cx.toFixed(1)}" y="${(H - PAD_B + 20).toFixed(1)}" font-size="11" fill="#475569" text-anchor="middle">${b.label}</text>`;
   }).join('');
   const yL = niceTicks(0, lMax), yR = niceTicks(0, rMax);
@@ -478,7 +478,7 @@ function drawCurve(box) {
     if (rx1 - rx0 < 4) return '';
     const labelOk = (rx1 - rx0) >= 70;
     return `<rect x="${rx0.toFixed(1)}" y="${PAD_T}" width="${(rx1 - rx0).toFixed(1)}" height="${H - PAD_T - PAD_B}" fill="${color}" opacity="0.07"/>` +
-      (labelOk ? `<text x="${((rx0 + rx1) / 2).toFixed(1)}" y="${(PAD_T + 13).toFixed(1)}" font-size="11" fill="${color}" text-anchor="middle" font-weight="600" style="paint-order:stroke;stroke:#fff;stroke-width:3px;">${label}</text>` : '');
+      (labelOk ? `<text x="${((rx0 + rx1) / 2).toFixed(1)}" y="${(PAD_T + 13).toFixed(1)}" font-size="11" font-weight="500" fill="${color}" text-anchor="middle">${label}</text>` : '');
   };
   const zones = zone(0, yX, '#1d4e89', 'Elastic') + zone(yX, uX, '#92400e', 'Plastic hardening') + zone(uX, fX, '#7f1d1d', 'Necking');
 
@@ -503,9 +503,9 @@ function drawCurve(box) {
     const label = `${name} (${pt[0].toFixed(3)}, ${pt[1].toFixed(0)})`;
     const bw = label.length * 6.2 + 10;
     const rx = off[2] === 'end' ? tx - bw : tx - 5;
-    return `<circle cx="${X(pt[0]).toFixed(1)}" cy="${Y(pt[1]).toFixed(1)}" r="4.5" fill="${c}" stroke="#fff" stroke-width="1.5"/>` +
-      `<rect x="${rx.toFixed(1)}" y="${(ty - 13).toFixed(1)}" width="${bw.toFixed(1)}" height="17" rx="4" fill="#ffffff" opacity="0.88"/>` +
-      `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" font-size="11" fill="${c}" font-weight="600" text-anchor="${off[2]}">${escHtml(label)}</text>`;
+    return `<circle cx="${X(pt[0]).toFixed(1)}" cy="${Y(pt[1]).toFixed(1)}" r="4" fill="${c}" stroke="#fff" stroke-width="1.2"/>` +
+      `<rect x="${rx.toFixed(1)}" y="${(ty - 12).toFixed(1)}" width="${bw.toFixed(1)}" height="16" rx="4" fill="#ffffff" opacity="0.92"/>` +
+      `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" font-size="10.5" font-weight="500" fill="${c}" text-anchor="${off[2]}">${escHtml(label)}</text>`;
   }).join('');
 
   const xSteps = niceTicks(zx[0], zx[1]);
@@ -514,9 +514,9 @@ function drawCurve(box) {
   const grid = xSteps.map((v) => `<line x1="${X(v).toFixed(1)}" y1="${PAD_T}" x2="${X(v).toFixed(1)}" y2="${(H - PAD_B).toFixed(1)}" stroke="#e2e8f0"/>`).join('') +
     ySteps.map((v) => `<line x1="${PAD_L}" y1="${Y(v).toFixed(1)}" x2="${(W - PAD_R).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#e2e8f0"/>`).join('');
   const xticks = xSteps.map((v) =>
-    `<text x="${X(v).toFixed(1)}" y="${(H - PAD_B + 18).toFixed(1)}" font-size="10" fill="#64748b" text-anchor="middle">${tickFmt(v, xStep)}</text>`).join('');
+    `<text x="${X(v).toFixed(1)}" y="${(H - PAD_B + 18).toFixed(1)}" font-size="10" font-weight="400" fill="#64748b" text-anchor="middle">${tickFmt(v, xStep)}</text>`).join('');
   const yticks = ySteps.map((v) =>
-    `<text x="${(PAD_L - 8).toFixed(1)}" y="${(Y(v) + 3).toFixed(1)}" font-size="10" fill="#64748b" text-anchor="end">${tickFmt(v, yStep)}</text>`).join('');
+    `<text x="${(PAD_L - 8).toFixed(1)}" y="${(Y(v) + 3).toFixed(1)}" font-size="10" font-weight="400" fill="#64748b" text-anchor="end">${tickFmt(v, yStep)}</text>`).join('');
 
   let tough = '';
   try {
@@ -540,10 +540,10 @@ function drawCurve(box) {
     `<g id="pdCross" visibility="hidden">` +
     `<line id="pdCrossV" y1="${PAD_T}" y2="${(H - PAD_B).toFixed(1)}" stroke="#94a3b8" stroke-dasharray="4 3"/>` +
     `<line id="pdCrossH" x1="${PAD_L}" x2="${(W - PAD_R).toFixed(1)}" stroke="#94a3b8" stroke-dasharray="4 3"/>` +
-    `<text id="pdCrossT" font-size="11" fill="#334155" font-weight="600" style="paint-order:stroke;stroke:#fff;stroke-width:3px;"></text></g>` +
+    `<text id="pdCrossT" font-size="11" font-weight="500" fill="#334155"></text></g>` +
     `<rect id="pdZoomRect" x="0" y="0" width="0" height="0" fill="#1d4e89" opacity="0.15" stroke="#1d4e89" visibility="hidden"/>` +
-    `<text x="${PAD_L}" y="${H - 8}" font-size="11" fill="#64748b">Strain (–)</text>` +
-    `<text transform="rotate(-90 16 ${(H / 2).toFixed(0)})" x="16" y="${(H / 2).toFixed(0)}" font-size="11" fill="#64748b" text-anchor="middle">Stress (MPa)</text>` +
+    `<text x="${PAD_L}" y="${H - 8}" font-size="11" font-weight="400" fill="#64748b">Strain (–)</text>` +
+    `<text transform="rotate(-90 16 ${(H / 2).toFixed(0)})" x="16" y="${(H / 2).toFixed(0)}" font-size="11" font-weight="400" fill="#64748b" text-anchor="middle">Stress (MPa)</text>` +
     `</svg>` +
     (modeLine ? `<div class="pd-modeline">${escHtml(modeLine)}</div>` : '') + tough +
     `<div class="pd-modeline">드래그: 영역 확대 · 더블클릭: 원복${_pdZoom ? ' (확대 중)' : ''} · 마우스: 좌표 표시</div>`;
