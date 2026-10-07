@@ -149,7 +149,8 @@ function renderBarChart(preds) {
   const box = document.getElementById('pdBarBox');
   if (!box) return;
   if (!preds) { box.innerHTML = '<div class="rs-empty">예측 결과가 없습니다.</div>'; return; }
-  const W = 640, H = 340, PAD_L = 56, PAD_R = 56, PAD_T = 26, PAD_B = 44;
+  const W = 640, H = 360, PAD_L = 58, PAD_R = 58, PAD_T = 30, PAD_B = 48;
+  const plotH = H - PAD_T - PAD_B;
   const bars = [
     { label: 'Yield', v: preds.yield_stress_mpa, color: '#3498db', axis: 'L' },
     { label: 'UTS', v: preds.uts_mpa, color: '#e74c3c', axis: 'L' },
@@ -158,38 +159,41 @@ function renderBarChart(preds) {
   ];
   const vals = bars.map((b) => (b.v && Number.isFinite(b.v.value) ? b.v.value : 0));
   const errs = bars.map((b) => (b.v && Number.isFinite(b.v.uncertainty) ? b.v.uncertainty : 0));
-  const lMax = Math.max(1, ...vals.slice(0, 2).map((v, i) => v + errs[i])) * 1.25;
-  const rMax = Math.max(1, ...vals.slice(2).map((v, i) => v + errs[i + 2])) * 1.25;
-  const Y = (b, i) => {
-    const m = b.axis === 'L' ? lMax : rMax;
-    return { y: H - PAD_B - (vals[i] / m) * (H - PAD_T - PAD_B), m };
-  };
-  const n = bars.length, slot = (W - PAD_L - PAD_R) / n, bw = Math.min(90, slot * 0.55);
+  const lMax = Math.max(1, vals[0] + errs[0], vals[1] + errs[1]) * 1.3;
+  const rMax = Math.max(1, vals[2] + errs[2], vals[3] + errs[3]) * 1.3;
+  const n = bars.length, slot = (W - PAD_L - PAD_R) / n, bw = Math.min(92, slot * 0.55);
   const rects = bars.map((b, i) => {
-    const { y } = Y(b, i);
+    const m = b.axis === 'L' ? lMax : rMax;
+    const y = H - PAD_B - (vals[i] / m) * plotH;
     const cx = PAD_L + slot * i + slot / 2;
-    const e = errs[i], m = b.axis === 'L' ? lMax : rMax;
-    const yTop = H - PAD_B - ((vals[i] + e) / m) * (H - PAD_T - PAD_B);
-    const yBot = H - PAD_B - (Math.max(0, vals[i] - e) / m) * (H - PAD_T - PAD_B);
-    return `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(0)}" height="${(H - PAD_B - y).toFixed(1)}" rx="4" fill="${b.color}"/>` +
+    const e = errs[i];
+    const yTop = H - PAD_B - ((vals[i] + e) / m) * plotH;
+    const yBot = H - PAD_B - (Math.max(0, vals[i] - e) / m) * plotH;
+    const lblY = Math.max(yTop - 8, PAD_T - 4);
+    return `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(0)}" height="${Math.max(2, H - PAD_B - y).toFixed(1)}" rx="4" fill="${b.color}"/>` +
       `<line x1="${cx.toFixed(1)}" y1="${yTop.toFixed(1)}" x2="${cx.toFixed(1)}" y2="${yBot.toFixed(1)}" stroke="#111827" stroke-width="1.6"/>` +
       `<line x1="${(cx - 9).toFixed(1)}" y1="${yTop.toFixed(1)}" x2="${(cx + 9).toFixed(1)}" y2="${yTop.toFixed(1)}" stroke="#111827" stroke-width="1.6"/>` +
       `<line x1="${(cx - 9).toFixed(1)}" y1="${yBot.toFixed(1)}" x2="${(cx + 9).toFixed(1)}" y2="${yBot.toFixed(1)}" stroke="#111827" stroke-width="1.6"/>` +
-      `<text x="${cx.toFixed(1)}" y="${(y - 8).toFixed(1)}" font-size="12" font-weight="700" fill="#111827" text-anchor="middle">${vals[i].toFixed(1)}${e ? ' ± ' + e.toFixed(1) : ''}</text>` +
-      `<text x="${cx.toFixed(1)}" y="${(H - PAD_B + 20).toFixed(1)}" font-size="11" fill="#64748b" text-anchor="middle">${b.label}</text>` +
-      `<text x="${cx.toFixed(1)}" y="${(H - PAD_B + 33).toFixed(1)}" font-size="10" fill="#94a3b8" text-anchor="middle">${b.axis === 'L' ? 'MPa' : '%'}</text>`;
+      `<rect x="${(cx - 52).toFixed(1)}" y="${(lblY - 13).toFixed(1)}" width="104" height="17" rx="4" fill="#ffffff" opacity="0.9"/>` +
+      `<text x="${cx.toFixed(1)}" y="${lblY.toFixed(1)}" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">${vals[i].toFixed(1)}${e ? ' ± ' + e.toFixed(1) : ''}</text>` +
+      `<text x="${cx.toFixed(1)}" y="${(H - PAD_B + 20).toFixed(1)}" font-size="11" fill="#475569" text-anchor="middle">${b.label}</text>`;
   }).join('');
-  const yL = niceTicks(0, lMax);
+  const yL = niceTicks(0, lMax), yR = niceTicks(0, rMax);
   const gridL = yL.map((v) => {
-    const y = H - PAD_B - (v / lMax) * (H - PAD_T - PAD_B);
+    const y = H - PAD_B - (v / lMax) * plotH;
     return `<line x1="${PAD_L}" y1="${y.toFixed(1)}" x2="${(W - PAD_R).toFixed(1)}" y2="${y.toFixed(1)}" stroke="#e2e8f0"/>` +
       `<text x="${(PAD_L - 6).toFixed(1)}" y="${(y + 3).toFixed(1)}" font-size="10" fill="#64748b" text-anchor="end">${tickFmt(v, tickStep(yL))}</text>`;
   }).join('');
+  const axisR = yR.map((v) => {
+    const y = H - PAD_B - (v / rMax) * plotH;
+    return `<line x1="${(W - PAD_R).toFixed(1)}" y1="${y.toFixed(1)}" x2="${(W - PAD_R + 5).toFixed(1)}" y2="${y.toFixed(1)}" stroke="#94a3b8"/>` +
+      `<text x="${(W - PAD_R + 9).toFixed(1)}" y="${(y + 3).toFixed(1)}" font-size="10" fill="#64748b" text-anchor="start">${tickFmt(v, tickStep(yR))}</text>`;
+  }).join('');
   box.innerHTML =
     `<svg viewBox="0 0 ${W} ${H}" class="pd-svg" role="img" aria-label="predicted properties">` +
-    gridL + rects +
-    `<text x="${PAD_L}" y="${H - 2}" font-size="11" fill="#64748b">Stress (MPa, 좌)</text>` +
-    `<text x="${W - PAD_R}" y="${H - 2}" font-size="11" fill="#64748b" text-anchor="end">Percentage (%, 우)</text>` +
+    gridL + axisR + rects +
+    `<text transform="rotate(-90 14 ${(H / 2).toFixed(0)})" x="14" y="${(H / 2).toFixed(0)}" font-size="11" fill="#64748b" text-anchor="middle">Stress (MPa)</text>` +
+    `<text transform="rotate(90 ${(W - 10).toFixed(0)} ${(H / 2).toFixed(0)})" x="${(W - 10).toFixed(0)}" y="${(H / 2).toFixed(0)}" font-size="11" fill="#64748b" text-anchor="middle">Percentage (%)</text>` +
     `</svg><div class="pd-modeline">오차 막대: ±불확실성 (1σ)</div>`;
 }
 
