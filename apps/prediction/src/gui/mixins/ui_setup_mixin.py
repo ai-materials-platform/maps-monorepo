@@ -31,6 +31,102 @@ from src.gui.constants import APP_FONT_SIZE, GLOBAL_QSS
 from src.gui.widgets import CustomTitleBar, FloatingChatbotIcon, MAPSLogoWidget, MplCanvas, PredictionGuideOverlay
 
 
+def _sim_window_handle():
+    """실제 시뮬 창(MAPS)이 있으면 HWND, 없으면 None (Windows 전용)."""
+    import os
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        hwnd = ctypes.windll.user32.FindWindowW(None, "MAPS")
+        return hwnd or None
+    except Exception:
+        return None
+
+
+def _pids_listening_on(port):
+    """127.0.0.1:<port>를 LISTEN 중인 PID 목록 (Windows netstat 파싱)."""
+    import os
+    import subprocess
+    if os.name != "nt":
+        return []
+    try:
+        out = subprocess.run(
+            ["netstat", "-ano"], capture_output=True, text=True, timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        ).stdout
+    except Exception:
+        return []
+    pids = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 5 or parts[0] != "TCP" or parts[3] != "LISTENING":
+            continue
+        if parts[1] not in (f"127.0.0.1:{port}", f"[::1]:{port}"):
+            continue
+        try:
+            pids.append(int(parts[4]))
+        except ValueError:
+            continue
+    return pids
+
+
+def _is_stale_sim_process(pid):
+    """죽은 시뮬 실행의 잔해(vite/node)인지 확인. 모르면 False — 죽이지 않는다."""
+    import subprocess
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=10, creationflags=no_window,
+        ).stdout.strip()
+        image = out.split('","')[0].strip().strip('"').lower() if out else ""
+    except Exception:
+        return False
+    if image != "node.exe":
+        return False
+    # node라면 커맨드라인에 vite/simulation 흔적이 있어야 우리 잔해로 본다.
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"],
+            capture_output=True, text=True, timeout=15, creationflags=no_window,
+        ).stdout.lower()
+    except Exception:
+        return False
+    return ("vite" in out) or ("simulation" in out)
+
+
+def _reap_stale_sim_listeners(port, timeout=8.0):
+    """창 없는 리스너 중 잔해만 종료한다. 포트가 비면 True."""
+    import os
+    import subprocess
+    import time
+    if os.name != "nt":
+        return False
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        pids = _pids_listening_on(port)
+        if not pids:
+            return True
+        killable = [p for p in pids if _is_stale_sim_process(p)]
+        if not killable:
+            return False  # 모르는 프로세스가 물고 있음 — 건드리지 않는다
+        for p in killable:
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(p)],
+                    capture_output=True, timeout=10, creationflags=no_window,
+                )
+            except Exception:
+                pass
+        time.sleep(0.5)
+    return not _pids_listening_on(port)
+
+
 
 class UISetupMixin:
     _COMPOSITION_KEYS = ["Fe", "C", "Si", "Mn", "P", "S", "Ni", "Cr", "Mo", "Cu", "V", "N", "Nb", "Ti", "B", "Al"]
@@ -334,17 +430,24 @@ class UISetupMixin:
         # Single instance: simulation already up -> bring it forward, don't spawn another
         if _tcp_open("127.0.0.1", 5173):
             if os.name == "nt":
-                try:
-                    import ctypes
-                    hwnd = ctypes.windll.user32.FindWindowW(None, "MAPS")
-                    if hwnd:
+                hwnd = _sim_window_handle()
+                if hwnd:
+                    try:
+                        import ctypes
                         ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                         ctypes.windll.user32.SetForegroundWindow(hwnd)
                         return
-                except Exception:
-                    pass
-            QMessageBox.information(self, "실행 중", "시뮬레이션이 이미 실행 중입니다.")
-            return
+                    except Exception:
+                        pass
+                # 포트만 열리고 창이 없으면 죽은 실행의 잔해 vite다. 정리되면 정상 기동으로 진행.
+                if _reap_stale_sim_listeners(5173):
+                    pass  # 아래 기동 흐름으로 계속
+                else:
+                    QMessageBox.information(self, "실행 중", "시뮬레이션이 이미 실행 중입니다.")
+                    return
+            else:
+                QMessageBox.information(self, "실행 중", "시뮬레이션이 이미 실행 중입니다.")
+                return
 
         sim_dir = os.environ.get("AI_MATERIALS_SIMULATION_DIR") or next(
             (
