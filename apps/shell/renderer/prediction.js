@@ -254,12 +254,20 @@ function drawCurve(box) {
   }).join('') || `<polyline points="${xs.map((x, i) => `${X(x).toFixed(1)},${Y(ys[i]).toFixed(1)}`).join(' ')}" fill="none" stroke="#1d4e89" stroke-width="2.4"/>`;
 
   const PT_COLORS = { Yield: '#1d4e89', UpperYield: '#86198f', UTS: '#7f1d1d', Fracture: '#14532d' };
-  const PT_OFF = { Yield: [12, -14], UpperYield: [12, 22], UTS: [-10, -14], Fracture: [-10, 22] };
+  const PT_OFF = {
+    Yield: [12, -14, 'start'], UpperYield: [12, 24, 'start'],
+    UTS: [-12, -14, 'end'], Fracture: [-12, 24, 'end'],
+  };
   const markers = Object.entries(pts).map(([name, pt]) => {
     const c = PT_COLORS[name] || '#333';
-    const off = PT_OFF[name] || [10, -10];
+    const off = PT_OFF[name] || [10, -10, 'start'];
+    const tx = X(pt[0]) + off[0], ty = Y(pt[1]) + off[1];
+    const label = `${name} (${pt[0].toFixed(3)}, ${pt[1].toFixed(0)})`;
+    const bw = label.length * 6.2 + 10;
+    const rx = off[2] === 'end' ? tx - bw : tx - 5;
     return `<circle cx="${X(pt[0]).toFixed(1)}" cy="${Y(pt[1]).toFixed(1)}" r="4.5" fill="${c}" stroke="#fff" stroke-width="1.5"/>` +
-      `<text x="${(X(pt[0]) + off[0]).toFixed(1)}" y="${(Y(pt[1]) + off[1]).toFixed(1)}" font-size="11" fill="${c}" font-weight="600" style="paint-order:stroke;stroke:#fff;stroke-width:3px;">${escHtml(name)} (${pt[0].toFixed(3)}, ${pt[1].toFixed(0)})</text>`;
+      `<rect x="${rx.toFixed(1)}" y="${(ty - 13).toFixed(1)}" width="${bw.toFixed(1)}" height="17" rx="4" fill="#ffffff" opacity="0.88"/>` +
+      `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" font-size="11" fill="${c}" font-weight="600" text-anchor="${off[2]}">${escHtml(label)}</text>`;
   }).join('');
 
   const xSteps = niceTicks(zx[0], zx[1]);
@@ -276,11 +284,16 @@ function drawCurve(box) {
   try {
     let area = 0;
     for (let i = 1; i < xs.length; i++) area += (xs[i] - xs[i - 1]) * (ys[i] + ys[i - 1]) / 2;
-    if (isFinite(area)) tough = `<div class="pd-modeline">인성 약 ${area.toFixed(0)} MJ/m³ (곡선下面积)</div>`;
+    if (isFinite(area)) tough = `<div class="pd-modeline">인성 약 ${area.toFixed(0)} MJ/m³ (곡선 아래 면적)</div>`;
   } catch (_) {}
 
   const meta = curve.meta || {};
-  const modeLine = [meta.yield_mode, meta.fracture_mode].filter(Boolean).join(' · ');
+  const YIELD_KR = { continuous: '연속항복', discontinuous: '불연속항복' };
+  const FRAC_KR = { auto: '자동', ductile: '연성', brittle: '취성' };
+  const modeLine = [
+    YIELD_KR[meta.yield_mode] || meta.yield_mode,
+    FRAC_KR[meta.fracture_mode] || meta.fracture_mode,
+  ].filter(Boolean).join(' · ');
   box.innerHTML =
     `<svg id="pdCurveSvg" viewBox="0 0 ${W} ${H}" class="pd-svg" role="img" aria-label="stress-strain curve" style="cursor:crosshair;">` +
     grid +
@@ -309,8 +322,9 @@ function bindCrosshair(box) {
   const tx = box.querySelector('#pdCrossT');
   if (!g || !lv || !lh || !tx) return;
   const curve = _pdCurve;
-  const zx = (_pdZoom && _pdZoom.x) || [0, 1];
-  const zy = (_pdZoom && _pdZoom.y) || [0, 1];
+  const full = pdFullDomain();
+  const zx = (_pdZoom && _pdZoom.x) || full.x;
+  const zy = (_pdZoom && _pdZoom.y) || full.y;
   const W = 640, H = 400, PAD_L = 66, PAD_B = 46, PAD_T = 16, PAD_R = 16;
   svg.addEventListener('mousemove', (e) => {
     if (e.buttons !== 0) { g.setAttribute('visibility', 'hidden'); return; }
@@ -338,6 +352,17 @@ function svgPoint(svg, evt) {
   return pt.matrixTransform(svg.getScreenCTM().inverse());
 }
 
+function pdFullDomain() {
+  const curve = _pdCurve || {};
+  const xs = curve.strain || [], ys = curve.stress || [];
+  const x1 = xs.length ? Math.max(...xs) * 1.08 : NaN;
+  const y1 = ys.length ? Math.max(...ys) * 1.20 : NaN;
+  return {
+    x: [(0), (x1 > 0 && isFinite(x1)) ? x1 : 1],
+    y: [(0), (y1 > 0 && isFinite(y1)) ? y1 : 1],
+  };
+}
+
 function bindCurveZoom(box) {
   const svg = box.querySelector('#pdCurveSvg');
   if (!svg) return;
@@ -345,8 +370,9 @@ function bindCurveZoom(box) {
   let start = null;
   const rect = () => box.querySelector('#pdZoomRect');
   const toData = (px, py) => {
-    const zx = (_pdZoom && _pdZoom.x) || [0, 1];
-    const zy = (_pdZoom && _pdZoom.y) || [0, 1];
+    const full = pdFullDomain();
+    const zx = (_pdZoom && _pdZoom.x) || full.x;
+    const zy = (_pdZoom && _pdZoom.y) || full.y;
     const plotW = W - PAD_L - PAD_R, plotH = H - PAD_B - PAD_T;
     return [
       zx[0] + ((px - PAD_L) / plotW) * (zx[1] - zx[0]),
