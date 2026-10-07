@@ -42,6 +42,7 @@
         <nav class="nav-list" aria-label="주 메뉴">
           <button class="nav-item active" data-page="home"><span class="nav-icon home"></span><span class="nav-label">홈</span></button>
           <button class="nav-item" data-page="prediction"><span class="nav-icon beaker"></span><span class="nav-label">물성 예측</span></button>
+          <button class="nav-item" data-page="curve"><span class="nav-icon chart"></span><span class="nav-label">곡선 분석</span></button>
           <button class="nav-item" data-page="training"><span class="nav-icon chart"></span><span class="nav-label">모델 학습</span></button>
           <button class="nav-item" data-page="results"><span class="nav-icon briefcase"></span><span class="nav-label">결과 저장소</span></button>
           <button class="nav-item" data-page="projects"><span class="nav-icon folder"></span><span class="nav-label">프로젝트</span></button>
@@ -154,26 +155,96 @@
                 <button id="pdWsSaveBtn" class="action-button">저장 <span>→</span></button>
                 <span id="pdWsStatus" class="pd-status"></span>
               </div>
-              <h3 style="margin-top:1rem;">Stress-Strain 곡선</h3>
-              <div class="pd-curve-bar">
-                <label>항복 모드
-                  <select id="pdYieldMode">
-                    <option value="continuous">연속항복</option>
-                    <option value="discontinuous">불연속항복</option>
-                  </select>
-                </label>
-                <label>파단 모드
-                  <select id="pdFractureMode">
-                    <option value="auto">자동</option>
-                    <option value="ductile">연성</option>
-                    <option value="brittle">취성</option>
-                  </select>
-                </label>
-                <button id="pdCurveBtn" class="action-button">곡선 그리기 <span>→</span></button>
+              <h3 style="margin-top:1rem;">예측 물성 그래프</h3>
+              <div id="pdBarBox" class="pd-curve-box">
+                <div class="rs-empty">예측 실행하면 막대그래프가 표시됩니다.</div>
               </div>
-              <div id="pdCurveBox" class="pd-curve-box">
-                <div class="rs-empty">예측 실행 후 곡선 그리기를 눌러주세요.</div>
+            </section>
+          </div>
+        </div>
+        <!-- ── 곡선 분석 페이지 ── -->
+        <div id="page-curve" class="page" style="display:none;">
+          <div class="section-heading">
+            <h2>곡선 분석</h2>
+            <p>예측 물성으로 근사한 공학 응력-변형률 곡선입니다.</p>
+          </div>
+          <section class="card">
+            <div class="pd-curve-bar">
+              <label>항복 모드
+                <select id="cvYieldMode">
+                  <option value="continuous">연속항복</option>
+                  <option value="discontinuous">불연속항복</option>
+                </select>
+              </label>
+              <label>파단 모드
+                <select id="cvFractureMode">
+                  <option value="auto">자동</option>
+                  <option value="ductile">연성</option>
+                  <option value="brittle">취성</option>
+                </select>
+              </label>
+              <button id="cvCurveBtn" class="action-button">곡선 그리기 <span>→</span></button>
+              <button id="cvExploreBtn" class="action-button">자세하게 보기 <span>→</span></button>
+              <span id="cvStatus" class="pd-status"></span>
+            </div>
+            <div id="cvCurveBox" class="pd-curve-box">
+              <div class="rs-empty">물성 예측 탭에서 예측 실행 후 곡선 그리기를 눌러주세요.</div>
+            </div>
+            <div id="cvInfo" class="pd-modeline"></div>
+          </section>
+        </div>
+        <!-- ── 상세 탐색기 페이지 ── -->
+        <div id="page-explore" class="page" style="display:none;">
+          <div class="section-heading">
+            <h2>Stress-Strain 상세 탐색기</h2>
+            <p>조성·공정 값을 바꾸면 곡선이 실시간으로 갱신됩니다. (드래그: 영역 확대 · 더블클릭: 원복)</p>
+          </div>
+          <div class="pd-layout">
+            <section class="card pd-form-card">
+              <h3>탐색 컬럼</h3>
+              <label class="pd-field pd-wide"><span>컬럼</span><select id="exCol"></select></label>
+              <h3>항복 모드</h3>
+              <label class="pd-field pd-wide"><span>모드</span>
+                <select id="exYieldMode">
+                  <option value="continuous">연속항복</option>
+                  <option value="discontinuous">불연속항복</option>
+                </select>
+              </label>
+              <label class="pd-field pd-wide"><span>Lüders 변형률 (%)</span>
+                <input id="exLuders" type="number" step="0.5" min="0.2" max="8" value="2.0" disabled>
+              </label>
+              <h3>파단 모드</h3>
+              <label class="pd-field pd-wide"><span>모드</span>
+                <select id="exFractureMode">
+                  <option value="auto">자동 (연신율 기준)</option>
+                  <option value="ductile">연성 파단</option>
+                  <option value="brittle">취성 파단</option>
+                </select>
+              </label>
+              <h3>값 범위</h3>
+              <div class="pd-grid">
+                <label class="pd-field"><span>최소</span><input id="exMin" type="number" step="any"></label>
+                <label class="pd-field"><span>최대</span><input id="exMax" type="number" step="any"></label>
               </div>
+              <h3>현재 값</h3>
+              <div class="pd-field pd-wide" style="display:block;">
+                <input id="exVal" type="number" step="any" style="font-size:1.3rem;font-weight:700;text-align:center;width:100%;">
+                <input id="exSlider" type="range" min="0" max="1000" value="500" style="width:100%;">
+                <div style="display:flex;justify-content:space-between;font-size:.75rem;color:var(--text-muted);"><span id="exMinLbl">—</span><span id="exMaxLbl">—</span></div>
+              </div>
+              <div id="exResult" class="pd-results" style="margin-top:.6rem;">
+                <div class="rs-empty">곡선을 그리면 예측 물성이 표시됩니다.</div>
+              </div>
+              <div class="pd-actions">
+                <button id="exResetBtn" class="action-button">기준값으로 초기화</button>
+                <button id="exBackBtn" class="action-button">곡선으로 돌아가기</button>
+              </div>
+            </section>
+            <section class="card pd-result-card">
+              <div id="exCurveBox" class="pd-curve-box">
+                <div class="rs-empty">좌측 값을 조절하면 곡선이 갱신됩니다.</div>
+              </div>
+              <div id="exInfo" class="pd-modeline"></div>
             </section>
           </div>
         </div>

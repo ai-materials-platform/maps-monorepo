@@ -44,9 +44,10 @@ function initPredictionPage() {
   )).join('');
 
   document.getElementById('pdRunBtn').addEventListener('click', runPrediction);
-  document.getElementById('pdCurveBtn').addEventListener('click', runCurve);
   document.getElementById('pdWsSaveBtn').addEventListener('click', saveWorkspace);
   loadModelList();
+  initCurvePage();
+  initExplorePage();
 }
 
 let _pdLast = null;
@@ -141,12 +142,76 @@ function renderPredictionResults(box, data) {  const preds = data.predictions ||
   }
 
   box.innerHTML = `<div class="pd-cards">${cards}</div>` + badge;
+  renderBarChart(data.predictions);
 }
 
-async function runCurve() {
-  const box = document.getElementById('pdCurveBox');
-  const btn = document.getElementById('pdCurveBtn');
-  btn.disabled = true;
+function renderBarChart(preds) {
+  const box = document.getElementById('pdBarBox');
+  if (!box) return;
+  if (!preds) { box.innerHTML = '<div class="rs-empty">예측 결과가 없습니다.</div>'; return; }
+  const W = 640, H = 340, PAD_L = 56, PAD_R = 56, PAD_T = 26, PAD_B = 44;
+  const bars = [
+    { label: 'Yield', v: preds.yield_stress_mpa, color: '#3498db', axis: 'L' },
+    { label: 'UTS', v: preds.uts_mpa, color: '#e74c3c', axis: 'L' },
+    { label: 'Elong.', v: preds.elongation_pct, color: '#2ecc71', axis: 'R' },
+    { label: 'Area Red.', v: preds.area_reduction_pct, color: '#f39c12', axis: 'R' },
+  ];
+  const vals = bars.map((b) => (b.v && Number.isFinite(b.v.value) ? b.v.value : 0));
+  const errs = bars.map((b) => (b.v && Number.isFinite(b.v.uncertainty) ? b.v.uncertainty : 0));
+  const lMax = Math.max(1, ...vals.slice(0, 2).map((v, i) => v + errs[i])) * 1.25;
+  const rMax = Math.max(1, ...vals.slice(2).map((v, i) => v + errs[i + 2])) * 1.25;
+  const Y = (b, i) => {
+    const m = b.axis === 'L' ? lMax : rMax;
+    return { y: H - PAD_B - (vals[i] / m) * (H - PAD_T - PAD_B), m };
+  };
+  const n = bars.length, slot = (W - PAD_L - PAD_R) / n, bw = Math.min(90, slot * 0.55);
+  const rects = bars.map((b, i) => {
+    const { y } = Y(b, i);
+    const cx = PAD_L + slot * i + slot / 2;
+    const e = errs[i], m = b.axis === 'L' ? lMax : rMax;
+    const yTop = H - PAD_B - ((vals[i] + e) / m) * (H - PAD_T - PAD_B);
+    const yBot = H - PAD_B - (Math.max(0, vals[i] - e) / m) * (H - PAD_T - PAD_B);
+    return `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(0)}" height="${(H - PAD_B - y).toFixed(1)}" rx="4" fill="${b.color}"/>` +
+      `<line x1="${cx.toFixed(1)}" y1="${yTop.toFixed(1)}" x2="${cx.toFixed(1)}" y2="${yBot.toFixed(1)}" stroke="#111827" stroke-width="1.6"/>` +
+      `<line x1="${(cx - 9).toFixed(1)}" y1="${yTop.toFixed(1)}" x2="${(cx + 9).toFixed(1)}" y2="${yTop.toFixed(1)}" stroke="#111827" stroke-width="1.6"/>` +
+      `<line x1="${(cx - 9).toFixed(1)}" y1="${yBot.toFixed(1)}" x2="${(cx + 9).toFixed(1)}" y2="${yBot.toFixed(1)}" stroke="#111827" stroke-width="1.6"/>` +
+      `<text x="${cx.toFixed(1)}" y="${(y - 8).toFixed(1)}" font-size="12" font-weight="700" fill="#111827" text-anchor="middle">${vals[i].toFixed(1)}${e ? ' ± ' + e.toFixed(1) : ''}</text>` +
+      `<text x="${cx.toFixed(1)}" y="${(H - PAD_B + 20).toFixed(1)}" font-size="11" fill="#64748b" text-anchor="middle">${b.label}</text>` +
+      `<text x="${cx.toFixed(1)}" y="${(H - PAD_B + 33).toFixed(1)}" font-size="10" fill="#94a3b8" text-anchor="middle">${b.axis === 'L' ? 'MPa' : '%'}</text>`;
+  }).join('');
+  void scale;
+  const yL = niceTicks(0, lMax);
+  const gridL = yL.map((v) => {
+    const y = H - PAD_B - (v / lMax) * (H - PAD_T - PAD_B);
+    return `<line x1="${PAD_L}" y1="${y.toFixed(1)}" x2="${(W - PAD_R).toFixed(1)}" y2="${y.toFixed(1)}" stroke="#e2e8f0"/>` +
+      `<text x="${(PAD_L - 6).toFixed(1)}" y="${(y + 3).toFixed(1)}" font-size="10" fill="#64748b" text-anchor="end">${tickFmt(v, tickStep(yL))}</text>`;
+  }).join('');
+  box.innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" class="pd-svg" role="img" aria-label="predicted properties">` +
+    gridL + rects +
+    `<text x="${PAD_L}" y="${H - 2}" font-size="11" fill="#64748b">Stress (MPa, 좌)</text>` +
+    `<text x="${W - PAD_R}" y="${H - 2}" font-size="11" fill="#64748b" text-anchor="end">Percentage (%, 우)</text>` +
+    `</svg><div class="pd-modeline">오차 막대: ±불확실성 (1σ)</div>`;
+}
+
+let _cvInit = false;
+
+function initCurvePage() {
+  if (_cvInit) return;
+  _cvInit = true;
+  const btn = document.getElementById('cvCurveBtn');
+  const exp = document.getElementById('cvExploreBtn');
+  if (btn) btn.addEventListener('click', runCurvePage);
+  if (exp) exp.addEventListener('click', openExplorer);
+}
+
+async function runCurvePage() {
+  const box = document.getElementById('cvCurveBox');
+  const info = document.getElementById('cvInfo');
+  const btn = document.getElementById('cvCurveBtn');
+  if (!box) return;
+  if (btn) btn.disabled = true;
+  if (info) info.textContent = '';
   box.innerHTML = '<div class="rs-empty">곡선 계산 중...</div>';
   try {
     const res = await fetch(`${PREDICTION_API}/curve`, {
@@ -155,8 +220,8 @@ async function runCurve() {
       body: JSON.stringify({
         input: collectPredictionInput(),
         use_pretrained: true,
-        yield_mode: document.getElementById('pdYieldMode').value,
-        fracture_mode: document.getElementById('pdFractureMode').value,
+        yield_mode: document.getElementById('cvYieldMode').value,
+        fracture_mode: document.getElementById('cvFractureMode').value,
       }),
     });
     if (!res.ok) {
@@ -165,10 +230,180 @@ async function runCurve() {
     }
     const data = await res.json();
     renderCurve(box, data.curve);
+    if (info && data.correction_note) info.textContent = `⚠ ${data.correction_note}`;
   } catch (e) {
     box.innerHTML = '<div class="rs-empty">곡선 실패: ' + escHtml(e.message || e) + '</div>';
   } finally {
-    btn.disabled = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+function openExplorer() {
+  _exBase = collectPredictionInput();
+  if (typeof switchPage === 'function') switchPage('explore');
+  initExplorePage();
+  resetExplorerToBase();
+}
+
+/* ── 상세 탐색기 (PyQt StrainExploreDialog 이식) ── */
+const EX_RANGES = {
+  C: [0.01, 2.0], Si: [0.10, 3.0], Mn: [0.50, 5.0], P: [0.001, 0.05],
+  S: [0.001, 0.03], Ni: [0.10, 20.0], Cr: [14.0, 30.0], Mo: [0.0, 6.0],
+  Cu: [0.0, 4.0], V: [0.0, 1.0], N: [0.001, 0.40], Nb: [0.0, 0.50],
+  Ti: [0.0, 0.50], B: [0.0001, 0.005], Al: [0.001, 0.10],
+  Solution_treatment_temperature: [900, 1200], 'Solution_treatment_time(s)': [600, 14400],
+  'Grains mm-2': [100, 2000], 'Temperature (K)': [200, 1300],
+};
+const EX_LABELS = {
+  Solution_treatment_temperature: '용체화 처리 온도 (K)',
+  'Solution_treatment_time(s)': '용체화 처리 시간 (s)',
+  'Grains mm-2': '결정립 수 (mm⁻²)',
+  'Temperature (K)': '시험 온도 (K)',
+};
+let _exInit = false, _exBase = null, _exTimer = null;
+
+function initExplorePage() {
+  if (_exInit) return;
+  _exInit = true;
+  const col = document.getElementById('exCol');
+  if (!col) return;
+  const comp = ['C', 'Si', 'Mn', 'P', 'S', 'Ni', 'Cr', 'Mo', 'Cu', 'V', 'N', 'Nb', 'Ti', 'B', 'Al'];
+  const proc = ['Solution_treatment_temperature', 'Solution_treatment_time(s)', 'Grains mm-2', 'Temperature (K)'];
+  col.innerHTML = comp.map((c) => `<option value="${c}">${c}</option>`).join('') +
+    proc.map((c) => `<option value="${c}">${EX_LABELS[c] || c}</option>`).join('');
+  col.addEventListener('change', onExploreColChanged);
+  document.getElementById('exSlider').addEventListener('input', onExploreSlider);
+  document.getElementById('exVal').addEventListener('change', onExploreValInput);
+  document.getElementById('exMin').addEventListener('change', onExploreRangeChanged);
+  document.getElementById('exMax').addEventListener('change', onExploreRangeChanged);
+  document.getElementById('exYieldMode').addEventListener('change', () => {
+    document.getElementById('exLuders').disabled = document.getElementById('exYieldMode').value !== 'discontinuous';
+    scheduleExplore();
+  });
+  document.getElementById('exLuders').addEventListener('change', scheduleExplore);
+  document.getElementById('exFractureMode').addEventListener('change', scheduleExplore);
+  document.getElementById('exResetBtn').addEventListener('click', resetExplorerToBase);
+  document.getElementById('exBackBtn').addEventListener('click', () => {
+    if (typeof switchPage === 'function') switchPage('curve');
+  });
+}
+
+function exploreBase() {
+  if (_exBase && Object.keys(_exBase).length) return _exBase;
+  _exBase = collectPredictionInput();
+  return _exBase;
+}
+
+function resetExplorerToBase() {
+  const base = exploreBase();
+  const col = document.getElementById('exCol');
+  if (!col) return;
+  if (![...col.options].some((o) => o.value === 'C')) col.value = col.options[0].value;
+  else if (!col.value) col.value = 'C';
+  onExploreColChanged();
+}
+
+function onExploreColChanged() {
+  const base = exploreBase();
+  const key = document.getElementById('exCol').value;
+  const cur = Number.isFinite(parseFloat(base[key])) ? parseFloat(base[key]) : 0;
+  let [lo, hi] = EX_RANGES[key] || [Math.max(0, cur * 0.5), cur > 0 ? cur * 1.5 : 1];
+  if (!(hi > lo)) hi = lo + 1;
+  document.getElementById('exMin').value = lo;
+  document.getElementById('exMax').value = hi;
+  document.getElementById('exMinLbl').textContent = lo;
+  document.getElementById('exMaxLbl').textContent = hi;
+  const frac = hi > lo ? Math.min(1, Math.max(0, (cur - lo) / (hi - lo))) : 0.5;
+  document.getElementById('exSlider').value = Math.round(frac * 1000);
+  document.getElementById('exVal').value = cur;
+  scheduleExplore();
+}
+
+function onExploreSlider() {
+  const lo = parseFloat(document.getElementById('exMin').value);
+  const hi = parseFloat(document.getElementById('exMax').value);
+  if (!(hi > lo)) return;
+  const v = lo + (parseInt(document.getElementById('exSlider').value, 10) / 1000) * (hi - lo);
+  document.getElementById('exVal').value = +v.toFixed(6);
+  scheduleExplore();
+}
+
+function onExploreValInput() {
+  const lo = parseFloat(document.getElementById('exMin').value);
+  const hi = parseFloat(document.getElementById('exMax').value);
+  let v = parseFloat(document.getElementById('exVal').value);
+  if (!Number.isFinite(v)) return;
+  v = Math.min(hi, Math.max(lo, v));
+  document.getElementById('exVal').value = v;
+  if (hi > lo) document.getElementById('exSlider').value = Math.round(((v - lo) / (hi - lo)) * 1000);
+  scheduleExplore();
+}
+
+function onExploreRangeChanged() {
+  let lo = parseFloat(document.getElementById('exMin').value);
+  let hi = parseFloat(document.getElementById('exMax').value);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return;
+  if (hi <= lo) hi = lo + Math.max(Math.abs(lo) * 0.01, 1e-4);
+  document.getElementById('exMin').value = lo;
+  document.getElementById('exMax').value = hi;
+  document.getElementById('exMinLbl').textContent = lo;
+  document.getElementById('exMaxLbl').textContent = hi;
+  onExploreSlider();
+}
+
+function scheduleExplore() {
+  clearTimeout(_exTimer);
+  _exTimer = setTimeout(runExplore, 120);
+}
+
+async function runExplore() {
+  const box = document.getElementById('exCurveBox');
+  const info = document.getElementById('exInfo');
+  const resBox = document.getElementById('exResult');
+  if (!box) return;
+  const base = exploreBase();
+  const key = document.getElementById('exCol').value;
+  const val = parseFloat(document.getElementById('exVal').value);
+  if (!Number.isFinite(val)) return;
+  const input = { ...base, [key]: val };
+  const ludersPct = parseFloat(document.getElementById('exLuders').value);
+  try {
+    const res = await fetch(`${PREDICTION_API}/curve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input,
+        use_pretrained: true,
+        yield_mode: document.getElementById('exYieldMode').value,
+        luders_strain: Number.isFinite(ludersPct) ? ludersPct / 100 : undefined,
+        fracture_mode: document.getElementById('exFractureMode').value,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    renderCurve(box, data.curve);
+    const p = data.predictions || {};
+    const fmt = (o, u) => (o && o.value !== undefined ? `${o.value} ± ${o.uncertainty} ${u}` : '—');
+    const upper = data.curve.meta && data.curve.meta.upper_yield_stress
+      ? `<br>상항복점: <b>${data.curve.meta.upper_yield_stress.toFixed(1)} MPa</b>` : '';
+    resBox.innerHTML = `<div class="pd-cards" style="grid-template-columns:1fr 1fr;">` +
+      `<div class="pd-card"><span class="pd-label">항복강도</span><div class="pd-value" style="font-size:1.05rem;">${fmt(p.yield_stress_mpa, 'MPa')}</div></div>` +
+      `<div class="pd-card"><span class="pd-label">인장강도</span><div class="pd-value" style="font-size:1.05rem;">${fmt(p.uts_mpa, 'MPa')}</div></div>` +
+      `<div class="pd-card"><span class="pd-label">연신율</span><div class="pd-value" style="font-size:1.05rem;">${fmt(p.elongation_pct, '%')}</div></div>` +
+      `<div class="pd-card"><span class="pd-label">단면수축률</span><div class="pd-value" style="font-size:1.05rem;">${fmt(p.area_reduction_pct, '%')}</div></div>` +
+      `</div>${upper}`;
+    if (info) {
+      const notes = [];
+      if (data.correction_note) notes.push(`⚠ ${data.correction_note}`);
+      const fm = data.curve.meta && data.curve.meta.fracture_mode;
+      if (fm === 'brittle') notes.push('파단 모드: 취성');
+      info.textContent = notes.join(' · ');
+    }
+  } catch (e) {
+    box.innerHTML = '<div class="rs-empty">곡선 실패: ' + escHtml(e.message || e) + '</div>';
   }
 }
 
@@ -431,8 +666,8 @@ async function saveWorkspace() {
         predictions: _pdLast.predictions,
         correction: _pdLast.correction,
         curve_params: {
-          yield_mode: document.getElementById('pdYieldMode').value,
-          fracture_mode: document.getElementById('pdFractureMode').value,
+          yield_mode: (document.getElementById('cvYieldMode') || {}).value || 'continuous',
+          fracture_mode: (document.getElementById('cvFractureMode') || {}).value || 'auto',
         },
       }),
     });

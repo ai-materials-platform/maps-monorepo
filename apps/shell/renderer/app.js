@@ -241,6 +241,8 @@ function switchPage(pageId) {
   if (pageId === 'projects') renderProjectsPage();
   if (pageId === 'settings') loadSettingsLogs();
   if (pageId === 'prediction' && typeof initPredictionPage === 'function') initPredictionPage();
+  if (pageId === 'curve' && typeof initCurvePage === 'function') initCurvePage();
+  if (pageId === 'explore' && typeof initExplorePage === 'function') initExplorePage();
   if (pageId === 'training' && typeof initTrainingPage === 'function') initTrainingPage();
 }
 

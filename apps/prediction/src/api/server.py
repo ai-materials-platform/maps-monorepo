@@ -578,6 +578,7 @@ def curve():
             'model_type': model_label,
             'correction': correction,
             'correction_note': correction_badge(correction),
+            'predictions': _results,
             'curve': {
                 'strain': [round(float(x), 6) for x in np.asarray(strain).tolist()],
                 'stress': [round(float(y), 3) for y in np.asarray(stress).tolist()],
