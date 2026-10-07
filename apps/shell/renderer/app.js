@@ -485,8 +485,8 @@ async function launchApp(projectName, type) {
     if (isSim) {
       await invokeWithTimeout(window.integrationApi.startSimulationApp(), 60000, '시뮬레이션 실행');
     } else {
-      // PyQt 은퇴: 웹 예측 탭으로 이동 (별도 프로세스 기동 안 함)
-      switchPage('prediction');
+      // 예측은 PyQt 데스크톱 앱으로 실행
+      await invokeWithTimeout(window.integrationApi.startPredictionApp(projectName), 90000, '물성 예측 실행');
     }
     setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
     showToast(`${isSim ? '시뮬레이션' : '물성 예측'} 플랫폼을 실행했습니다.`);
@@ -508,10 +508,15 @@ async function openPredictionPlatform() {
 
   const MIN_MS = 2800, start = Date.now();
   showLoading(`"${projectName}" — 물성 예측 플랫폼 실행 중...`);
-  // PyQt 은퇴: 웹 예측 탭으로 이동 (별도 프로세스 기동 안 함)
-  switchPage('prediction');
-  setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
-  showToast('웹 물성 예측으로 이동했습니다.');
+  try {
+    // 예측은 PyQt 데스크톱 앱으로 실행 (웹 예측 탭은 보조)
+    await invokeWithTimeout(window.integrationApi.startPredictionApp(projectName), 90000, '물성 예측 실행');
+    setTimeout(hideLoading, Math.max(0, MIN_MS - (Date.now() - start)));
+    showToast('물성 예측 플랫폼 실행 요청을 보냈습니다.');
+  } catch (err) {
+    hideLoading();
+    showToast(err.message || String(err), 'error');
+  }
 }
 
 async function openSimulationPlatform() {
@@ -611,16 +616,22 @@ function bindEvents() {
       const action = msg && msg.action;
       if (!action) return;
       if (action.startsWith('nav:')) {
-        switchPage(action.slice(4));
+        const target = action.slice(4);
+        // 예측은 PyQt 데스크톱 앱으로 실행
+        if (target === 'prediction') { openPredictionPlatform(); return; }
+        switchPage(target);
       } else if (action === 'sim:start') {
         openSimulationPlatform();
       }
     });
   }
 
-  // Nav page switching
+  // Nav page switching (예측은 PyQt 데스크톱 앱으로 실행)
   document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
-    btn.addEventListener('click', () => switchPage(btn.dataset.page));
+    btn.addEventListener('click', () => {
+      if (btn.dataset.page === 'prediction') { openPredictionPlatform(); return; }
+      switchPage(btn.dataset.page);
+    });
   });
 
   // Results repository — Excel download button + API workspace buttons
