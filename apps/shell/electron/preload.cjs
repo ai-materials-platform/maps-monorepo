@@ -18,5 +18,6 @@ contextBridge.exposeInMainWorld('integrationApi', {
   onServiceLog: (cb) => ipcRenderer.on('service-log', (_e, line) => cb(line)),
   getSystemState: () => ipcRenderer.invoke('integration:getSystemState'),
   loadProjects: () => ipcRenderer.invoke('projects:load'),
-  saveProjects: (list) => ipcRenderer.invoke('projects:save', list)
+  saveProjects: (list) => ipcRenderer.invoke('projects:save', list),
+  onMenuAction: (cb) => ipcRenderer.on('menu-action', (_e, msg) => cb(msg))
 });

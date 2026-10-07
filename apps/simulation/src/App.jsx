@@ -628,6 +628,19 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!window.desktopApi?.onMenuAction) return undefined;
+    const handler = (msg) => {
+      const action = msg && msg.action;
+      if (action === "report:open") openReport();
+      else if (action === "data:export-csv") exportCSV();
+      else if (action === "data:export-json") exportJSON();
+      else if (action === "state:save") saveState();
+    };
+    window.desktopApi.onMenuAction(handler);
+    return undefined;
+  }, []);
+
+  useEffect(() => {
     if (didInitialPrediction.current) return;
     didInitialPrediction.current = true;
     window.setTimeout(() => {

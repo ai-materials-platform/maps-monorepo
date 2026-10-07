@@ -639,6 +639,20 @@ ipcMain.handle('integration:startSimulationApp', async () => {
     simulationWindow.loadURL('http://127.0.0.1:5173');
     simulationWindow.on('closed', () => {
       simulationWindow = null;
+      // 시뮬 창을 닫으면 vite도 함께 내린다 (다음 기동은 fresh boot).
+      // 그냥 두면 :5173이 계속 물려서 "이미 실행 중" 오해를 산다.
+      try {
+        if (isProcessRunning(simulationViteProcess)) {
+          if (process.platform === 'win32') {
+            const { execFile } = require('node:child_process');
+            execFile('taskkill', ['/F', '/T', '/PID', String(simulationViteProcess.pid)]);
+          } else {
+            simulationViteProcess.kill();
+          }
+          logService('simulation-vite', 'stopped with simulation window');
+        }
+      } catch (_) {}
+      simulationViteProcess = null;
       // 시뮬레이션 창을 닫으면 숨겨둔 shell 대시보드를 다시 앞으로
       try {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -796,8 +810,63 @@ ipcMain.handle('integration:stopServices', async () => {
   return { stopped: true };
 });
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
+function setupAppMenu() {
+  // stock 영문 메뉴 대신 한글 실기능 메뉴 (PyQt 메뉴바와 통일).
+  // action 항목은 렌더러로 전달해서 실제 기능에 연결한다.
+  const send = (action, payload) => {
+    const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+    const target = mainWindow && !mainWindow.isDestroyed() ? mainWindow : wins[0];
+    if (target) target.webContents.send('menu-action', { action, payload });
+  };
+  const template = [
+    { label: '파일', submenu: [
+      { label: '물성 예측 열기', click: () => send('nav:prediction') },
+      { label: '시뮬레이션 시작', click: () => send('sim:start') },
+      { type: 'separator' },
+      { label: '종료', click: () => app.quit() },
+    ]},
+    { label: '편집', submenu: [
+      { label: '실행 취소', role: 'undo' },
+      { label: '다시 실행', role: 'redo' },
+      { type: 'separator' },
+      { label: '잘라내기', role: 'cut' },
+      { label: '복사', role: 'copy' },
+      { label: '붙여넣기', role: 'paste' },
+      { label: '전체 선택', role: 'selectAll' },
+    ]},
+    { label: '보기', submenu: [
+      { label: '홈으로', click: () => send('nav:home') },
+      { label: '결과 저장소', click: () => send('nav:results') },
+      { type: 'separator' },
+      { label: '새로고침', click: (_m, w) => { if (w && !w.isDestroyed()) w.reload(); } },
+      { label: '전체 화면 전환', click: (_m, w) => { if (w && !w.isDestroyed()) w.setFullScreen(!w.isFullScreen()); } },
+      ...(app.isPackaged ? [] : [{ label: '개발자 도구', click: (_m, w) => { if (w && !w.isDestroyed()) w.webContents.toggleDevTools(); } }]),
+    ]},
+    { label: '도움말', submenu: [
+      { label: 'MAPS 정보', click: () => {
+        dialog.showMessageBox({
+          type: 'info',
+          title: 'MAPS',
+          message: 'MAPS — Microstructure & Alloy Prediction System',
+          detail: '물성 예측 + 시뮬레이션 통합 데스크톱 환경\n' +
+                  `Electron ${process.versions.electron} / Chrome ${process.versions.chrome}`,
+        });
+      }},
+    ]},
+  ];
+  if (!app.isPackaged) {
+    template.push({ label: '개발', submenu: [
+      { role: 'reload' },
+      { role: 'forceReload' },
+      { role: 'toggleDevTools' },
+      { type: 'separator' },
+      { role: 'quit' },
+    ]});
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+function createWindow() {  mainWindow = new BrowserWindow({
     width: 1540,
     height: 980,
     minWidth: 1180,
@@ -815,6 +884,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  setupAppMenu();
   if (app.isPackaged) projectsDir = path.join(app.getPath('userData'), 'projects');
   await fsp.mkdir(projectsDir, { recursive: true });
   createWindow();
