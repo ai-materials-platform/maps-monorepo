@@ -179,7 +179,6 @@ function renderBarChart(preds) {
       `<text x="${cx.toFixed(1)}" y="${(H - PAD_B + 20).toFixed(1)}" font-size="11" fill="#64748b" text-anchor="middle">${b.label}</text>` +
       `<text x="${cx.toFixed(1)}" y="${(H - PAD_B + 33).toFixed(1)}" font-size="10" fill="#94a3b8" text-anchor="middle">${b.axis === 'L' ? 'MPa' : '%'}</text>`;
   }).join('');
-  void scale;
   const yL = niceTicks(0, lMax);
   const gridL = yL.map((v) => {
     const y = H - PAD_B - (v / lMax) * (H - PAD_T - PAD_B);
