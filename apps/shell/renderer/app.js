@@ -240,10 +240,6 @@ function switchPage(pageId) {
   if (pageId === 'results') loadResults();
   if (pageId === 'projects') renderProjectsPage();
   if (pageId === 'settings') loadSettingsLogs();
-  if (pageId === 'prediction' && typeof initPredictionPage === 'function') initPredictionPage();
-  if (pageId === 'curve' && typeof initCurvePage === 'function') initCurvePage();
-  if (pageId === 'explore' && typeof initExplorePage === 'function') initExplorePage();
-  if (pageId === 'training' && typeof initTrainingPage === 'function') initTrainingPage();
 }
 
 /* ── Settings / Service Log ── */
@@ -309,13 +305,12 @@ async function loadApiWorkspace(name) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     const ws = data.workspace || {};
-    const input = ws.input || {};
-    document.querySelectorAll('[data-pd-key]').forEach((node) => {
-      if (input[node.dataset.pdKey] !== undefined) node.value = input[node.dataset.pdKey];
-    });
-    if (typeof initPredictionPage === 'function') initPredictionPage();
-    switchPage('prediction');
-    showToast(`'${name}' 불러옴 — 예측 실행을 눌러주세요.`);
+    const preds = ws.predictions || {};
+    const summary = ['yield_stress_mpa', 'uts_mpa', 'elongation_pct', 'area_reduction_pct']
+      .filter((k) => preds[k] && preds[k].value !== undefined)
+      .map((k) => `${k}=${preds[k].value}`)
+      .join(', ');
+    showToast(`'${name}' 불러옴${summary ? ' — ' + summary : ''} (예측은 PyQt 앱에서 확인하세요.)`);
   } catch (err) {
     showToast(err.message || String(err), 'error');
   }

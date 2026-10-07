@@ -807,8 +807,6 @@ function setupAppMenu() {
   const template = [
     { label: '파일', submenu: [
       { label: '물성 예측 열기', click: () => send('nav:prediction') },
-      { label: '곡선 분석 열기', click: () => send('nav:curve') },
-      { label: '모델 학습 열기', click: () => send('nav:training') },
       { label: '시뮬레이션 시작', click: () => send('sim:start') },
       { type: 'separator' },
       { label: '종료', click: () => app.quit() },
