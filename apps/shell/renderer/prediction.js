@@ -183,7 +183,7 @@ function renderCurve(box, curve) {
 
 function niceTicks(min, max, count) {
   count = count || 5;
-  if (!(max > min) || !isFinite(min) || !isFinite(max)) return [min];
+  if (!isFinite(min) || !isFinite(max) || !(max > min)) return [];
   const span = max - min;
   const raw = span / Math.max(count - 1, 1);
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
