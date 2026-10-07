@@ -181,75 +181,157 @@ function renderCurve(box, curve) {
   drawCurve(box);
 }
 
+function niceTicks(min, max, count) {
+  count = count || 5;
+  if (!(max > min) || !isFinite(min) || !isFinite(max)) return [min];
+  const span = max - min;
+  const raw = span / Math.max(count - 1, 1);
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const step = (norm < 1.5 ? 1 : norm < 3.5 ? 2 : norm < 7.5 ? 5 : 10) * mag;
+  const ticks = [];
+  for (let v = Math.ceil((min - 1e-12) / step) * step; v <= max + 1e-9; v += step) {
+    ticks.push(+v.toFixed(12));
+  }
+  return ticks.length ? ticks : [min];
+}
+
+function tickFmt(v, step) {
+  const d = step >= 1 ? 0 : Math.min(6, Math.max(0, Math.ceil(-Math.log10(step))));
+  return v.toFixed(d);
+}
+
+function tickStep(ticks) {
+  if (ticks.length < 2) return 1;
+  return Math.abs(ticks[1] - ticks[0]) || 1;
+}
+
 function drawCurve(box) {
   const curve = _pdCurve;
-  const W = 640, H = 380, PAD_L = 58, PAD_B = 42, PAD_T = 14, PAD_R = 14;
+  const W = 680, H = 400, PAD_L = 66, PAD_B = 46, PAD_T = 16, PAD_R = 16;
   const xs = curve.strain, ys = curve.stress;
-  const fullX = [0, (Math.max(...xs) * 1.08) || 1];
-  const fullY = [0, (Math.max(...ys) * 1.20) || 1];
+  if (!Array.isArray(xs) || !Array.isArray(ys) || xs.length < 2 || xs.length !== ys.length ||
+      !xs.every(Number.isFinite) || !ys.every(Number.isFinite)) {
+    box.innerHTML = '<div class="rs-empty">곡선 데이터가 올바르지 않습니다. 예측을 다시 실행해주세요.</div>';
+    return;
+  }
+  const fullX = [0, Math.max(...xs) * 1.08];
+  const fullY = [0, Math.max(...ys) * 1.20];
+  if (!(fullX[1] > 0) || !(fullY[1] > 0)) {
+    box.innerHTML = '<div class="rs-empty">곡선 범위를 계산할 수 없습니다.</div>';
+    return;
+  }
   const zx = (_pdZoom && _pdZoom.x) || fullX;
   const zy = (_pdZoom && _pdZoom.y) || fullY;
   const X = (x) => PAD_L + ((x - zx[0]) / (zx[1] - zx[0])) * (W - PAD_L - PAD_R);
   const Y = (y) => H - PAD_B - ((y - zy[0]) / (zy[1] - zy[0])) * (H - PAD_T - PAD_B);
 
-  const pts = curve.points || {};
+  const rawPts = curve.points || {};
+  const pts = {};
+  Object.entries(rawPts).forEach(([k, v]) => {
+    if (Array.isArray(v) && Number.isFinite(v[0]) && Number.isFinite(v[1])) pts[k] = v;
+  });
   const yX = pts.Yield ? pts.Yield[0] : 0;
-  const uX = pts.UTS ? pts.UTS[0] : xMaxSafe(xs);
+  const uX = pts.UTS ? pts.UTS[0] : fullX[1] / 1.08;
   const fX = pts.Fracture ? pts.Fracture[0] : fullX[1];
   const zone = (x0, x1, color, label) => {
     if (!(x1 > x0)) return '';
-    return `<rect x="${X(x0).toFixed(1)}" y="${PAD_T}" width="${(X(x1) - X(x0)).toFixed(1)}" height="${H - PAD_T - PAD_B}" fill="${color}" opacity="0.08"/>` +
-      `<text x="${((X(x0) + X(x1)) / 2).toFixed(1)}" y="${(PAD_T + 12).toFixed(1)}" font-size="10" fill="${color}" text-anchor="middle" font-weight="600">${label}</text>`;
+    const rx0 = X(x0), rx1 = X(x1);
+    if (rx1 - rx0 < 4) return '';
+    const labelOk = (rx1 - rx0) >= 70;
+    return `<rect x="${rx0.toFixed(1)}" y="${PAD_T}" width="${(rx1 - rx0).toFixed(1)}" height="${H - PAD_T - PAD_B}" fill="${color}" opacity="0.07"/>` +
+      (labelOk ? `<text x="${((rx0 + rx1) / 2).toFixed(1)}" y="${(PAD_T + 13).toFixed(1)}" font-size="11" fill="${color}" text-anchor="middle" font-weight="600" style="paint-order:stroke;stroke:#fff;stroke-width:3px;">${label}</text>` : '');
   };
-  const zones = zone(0, yX, '#1d4e89', 'Elastic') + zone(yX, uX, '#92400e', 'Hardening') + zone(uX, fX, '#7f1d1d', 'Necking');
+  const zones = zone(0, yX, '#1d4e89', 'Elastic') + zone(yX, uX, '#92400e', 'Plastic hardening') + zone(uX, fX, '#7f1d1d', 'Necking');
 
   const SEG_COLORS = { elastic: '#1d4e89', hardening: '#92400e', necking: '#7f1d1d' };
   const segs = curve.segments || {};
-  const segLines = Object.entries(segs).filter(([, s]) => s && s.x && s.y).map(([name, s]) => {
+  const segNames = Object.keys(segs).filter((k) => segs[k] && segs[k].x && segs[k].y);
+  const segLines = (segNames.length ? segNames : []).map((name) => {
+    const s = segs[name];
     const line = s.x.map((x, i) => `${X(x).toFixed(1)},${Y(s.y[i]).toFixed(1)}`).join(' ');
-    return `<polyline points="${line}" fill="none" stroke="${SEG_COLORS[name] || '#1d4e89'}" stroke-width="2.2"/>`;
-  }).join('') || `<polyline points="${xs.map((x, i) => `${X(x).toFixed(1)},${Y(ys[i]).toFixed(1)}`).join(' ')}" fill="none" stroke="#1d4e89" stroke-width="2.2"/>`;
+    return `<polyline points="${line}" fill="none" stroke="${SEG_COLORS[name] || '#1d4e89'}" stroke-width="2.4"/>`;
+  }).join('') || `<polyline points="${xs.map((x, i) => `${X(x).toFixed(1)},${Y(ys[i]).toFixed(1)}`).join(' ')}" fill="none" stroke="#1d4e89" stroke-width="2.4"/>`;
 
   const PT_COLORS = { Yield: '#1d4e89', UpperYield: '#86198f', UTS: '#7f1d1d', Fracture: '#14532d' };
+  const PT_OFF = { Yield: [12, -14], UpperYield: [12, 22], UTS: [-10, -14], Fracture: [-10, 22] };
   const markers = Object.entries(pts).map(([name, pt]) => {
     const c = PT_COLORS[name] || '#333';
-    return `<circle cx="${X(pt[0]).toFixed(1)}" cy="${Y(pt[1]).toFixed(1)}" r="4.5" fill="${c}"/>` +
-      `<text x="${(X(pt[0]) + 8).toFixed(1)}" y="${(Y(pt[1]) - 8).toFixed(1)}" font-size="11" fill="${c}" font-weight="600">${escHtml(name)} (${pt[0].toFixed(3)}, ${pt[1].toFixed(0)})</text>`;
+    const off = PT_OFF[name] || [10, -10];
+    return `<circle cx="${X(pt[0]).toFixed(1)}" cy="${Y(pt[1]).toFixed(1)}" r="4.5" fill="${c}" stroke="#fff" stroke-width="1.5"/>` +
+      `<text x="${(X(pt[0]) + off[0]).toFixed(1)}" y="${(Y(pt[1]) + off[1]).toFixed(1)}" font-size="11" fill="${c}" font-weight="600" style="paint-order:stroke;stroke:#fff;stroke-width:3px;">${escHtml(name)} (${pt[0].toFixed(3)}, ${pt[1].toFixed(0)})</text>`;
   }).join('');
 
-  const xticks = [0, 0.25, 0.5, 0.75, 1].map((f) => {
-    const v = zx[0] + (zx[1] - zx[0]) * f;
-    return `<line x1="${X(v).toFixed(1)}" y1="${(H - PAD_B).toFixed(1)}" x2="${X(v).toFixed(1)}" y2="${(H - PAD_B + 5).toFixed(1)}" stroke="#94a3b8"/>` +
-      `<text x="${X(v).toFixed(1)}" y="${(H - PAD_B + 18).toFixed(1)}" font-size="10" fill="#64748b" text-anchor="middle">${v.toFixed(3)}</text>`;
-  }).join('');
-  const yticks = [0, 0.25, 0.5, 0.75, 1].map((f) => {
-    const v = zy[0] + (zy[1] - zy[0]) * f;
-    return `<line x1="${(PAD_L - 5).toFixed(1)}" y1="${Y(v).toFixed(1)}" x2="${PAD_L.toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#94a3b8"/>` +
-      `<text x="${(PAD_L - 8).toFixed(1)}" y="${(Y(v) + 3).toFixed(1)}" font-size="10" fill="#64748b" text-anchor="end">${v.toFixed(0)}</text>`;
-  }).join('');
+  const xSteps = niceTicks(zx[0], zx[1]);
+  const ySteps = niceTicks(zy[0], zy[1]);
+  const xStep = tickStep(xSteps), yStep = tickStep(ySteps);
+  const grid = xSteps.map((v) => `<line x1="${X(v).toFixed(1)}" y1="${PAD_T}" x2="${X(v).toFixed(1)}" y2="${(H - PAD_B).toFixed(1)}" stroke="#e2e8f0"/>`).join('') +
+    ySteps.map((v) => `<line x1="${PAD_L}" y1="${Y(v).toFixed(1)}" x2="${(W - PAD_R).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#e2e8f0"/>`).join('');
+  const xticks = xSteps.map((v) =>
+    `<text x="${X(v).toFixed(1)}" y="${(H - PAD_B + 18).toFixed(1)}" font-size="10" fill="#64748b" text-anchor="middle">${tickFmt(v, xStep)}</text>`).join('');
+  const yticks = ySteps.map((v) =>
+    `<text x="${(PAD_L - 8).toFixed(1)}" y="${(Y(v) + 3).toFixed(1)}" font-size="10" fill="#64748b" text-anchor="end">${tickFmt(v, yStep)}</text>`).join('');
 
   let tough = '';
   try {
     let area = 0;
     for (let i = 1; i < xs.length; i++) area += (xs[i] - xs[i - 1]) * (ys[i] + ys[i - 1]) / 2;
-    tough = `<div class="pd-modeline">인성 약 ${area.toFixed(0)} MJ/m³ (곡선下面积)</div>`;
+    if (isFinite(area)) tough = `<div class="pd-modeline">인성 약 ${area.toFixed(0)} MJ/m³ (곡선下面积)</div>`;
   } catch (_) {}
 
   const meta = curve.meta || {};
   const modeLine = [meta.yield_mode, meta.fracture_mode].filter(Boolean).join(' · ');
   box.innerHTML =
     `<svg id="pdCurveSvg" viewBox="0 0 ${W} ${H}" class="pd-svg" role="img" aria-label="stress-strain curve" style="cursor:crosshair;">` +
+    grid +
+    `<rect x="${PAD_L}" y="${PAD_T}" width="${W - PAD_L - PAD_R}" height="${H - PAD_T - PAD_B}" fill="none" stroke="#cbd5e1"/>` +
     zones + xticks + yticks + segLines + markers +
+    `<g id="pdCross" visibility="hidden">` +
+    `<line id="pdCrossV" y1="${PAD_T}" y2="${(H - PAD_B).toFixed(1)}" stroke="#94a3b8" stroke-dasharray="4 3"/>` +
+    `<line id="pdCrossH" x1="${PAD_L}" x2="${(W - PAD_R).toFixed(1)}" stroke="#94a3b8" stroke-dasharray="4 3"/>` +
+    `<text id="pdCrossT" font-size="11" fill="#334155" font-weight="600" style="paint-order:stroke;stroke:#fff;stroke-width:3px;"></text></g>` +
     `<rect id="pdZoomRect" x="0" y="0" width="0" height="0" fill="#1d4e89" opacity="0.15" stroke="#1d4e89" visibility="hidden"/>` +
     `<text x="${PAD_L}" y="${H - 8}" font-size="11" fill="#64748b">Strain (–)</text>` +
-    `<text x="12" y="${PAD_T + 8}" font-size="11" fill="#64748b">Stress (MPa)</text>` +
+    `<text transform="rotate(-90 16 ${(H / 2).toFixed(0)})" x="16" y="${(H / 2).toFixed(0)}" font-size="11" fill="#64748b" text-anchor="middle">Stress (MPa)</text>` +
     `</svg>` +
     (modeLine ? `<div class="pd-modeline">${escHtml(modeLine)}</div>` : '') + tough +
-    `<div class="pd-modeline">드래그: 영역 확대 · 더블클릭: 원복${_pdZoom ? ' (확대 중)' : ''}</div>`;
+    `<div class="pd-modeline">드래그: 영역 확대 · 더블클릭: 원복${_pdZoom ? ' (확대 중)' : ''} · 마우스: 좌표 표시</div>`;
   bindCurveZoom(box);
+  bindCrosshair(box);
 }
 
-function xMaxSafe(xs) { return (Math.max(...xs) * 1.08) || 1; }
+function bindCrosshair(box) {
+  const svg = box.querySelector('#pdCurveSvg');
+  if (!svg) return;
+  const g = box.querySelector('#pdCross');
+  const lv = box.querySelector('#pdCrossV');
+  const lh = box.querySelector('#pdCrossH');
+  const tx = box.querySelector('#pdCrossT');
+  if (!g || !lv || !lh || !tx) return;
+  const curve = _pdCurve;
+  const zx = (_pdZoom && _pdZoom.x) || [0, 1];
+  const zy = (_pdZoom && _pdZoom.y) || [0, 1];
+  const W = 640, H = 400, PAD_L = 66, PAD_B = 46, PAD_T = 16, PAD_R = 16;
+  svg.addEventListener('mousemove', (e) => {
+    if (e.buttons !== 0) { g.setAttribute('visibility', 'hidden'); return; }
+    const p = svgPoint(svg, e);
+    if (p.x < PAD_L || p.x > W - PAD_R || p.y < PAD_T || p.y > H - PAD_B) {
+      g.setAttribute('visibility', 'hidden');
+      return;
+    }
+    const plotW = W - PAD_L - PAD_R, plotH = H - PAD_B - PAD_T;
+    const dx = zx[0] + ((p.x - PAD_L) / plotW) * (zx[1] - zx[0]);
+    const dy = zy[0] + ((H - PAD_B - p.y) / plotH) * (zy[1] - zy[0]);
+    lv.setAttribute('x1', p.x); lv.setAttribute('x2', p.x);
+    lh.setAttribute('y1', p.y); lh.setAttribute('y2', p.y);
+    tx.setAttribute('x', Math.min(p.x + 10, W - 150));
+    tx.setAttribute('y', Math.max(p.y - 10, PAD_T + 12));
+    tx.textContent = `ε = ${dx.toFixed(4)} / σ = ${dy.toFixed(0)} MPa`;
+    void curve;
+    g.setAttribute('visibility', 'visible');
+  });
+  svg.addEventListener('mouseleave', () => g.setAttribute('visibility', 'hidden'));
+}
 
 function svgPoint(svg, evt) {
   const pt = new DOMPoint(evt.clientX, evt.clientY);
@@ -259,13 +341,13 @@ function svgPoint(svg, evt) {
 function bindCurveZoom(box) {
   const svg = box.querySelector('#pdCurveSvg');
   if (!svg) return;
-  const W = 640, H = 380, PAD_L = 58, PAD_B = 42;
+  const W = 680, H = 400, PAD_L = 66, PAD_B = 46, PAD_R = 16, PAD_T = 16;
   let start = null;
   const rect = () => box.querySelector('#pdZoomRect');
   const toData = (px, py) => {
     const zx = (_pdZoom && _pdZoom.x) || [0, 1];
     const zy = (_pdZoom && _pdZoom.y) || [0, 1];
-    const plotW = W - PAD_L - 14, plotH = H - PAD_B - 14;
+    const plotW = W - PAD_L - PAD_R, plotH = H - PAD_B - PAD_T;
     return [
       zx[0] + ((px - PAD_L) / plotW) * (zx[1] - zx[0]),
       zy[0] + ((H - PAD_B - py) / plotH) * (zy[1] - zy[0]),
