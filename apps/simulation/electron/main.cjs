@@ -15,6 +15,7 @@ try {
 const rootDir = path.resolve(__dirname, "..");
 let backendProcess = null;
 let shellProcess = null;
+let predictionProcess = null;
 let appQuitting = false;
 
 // 중복 실행 방지: 두 번째 인스턴스는 종료하고 기존 창을 앞으로 가져온다.
@@ -56,6 +57,66 @@ function resolveShellDir() {
     return path.resolve(process.env.AI_MATERIALS_SHELL_DIR);
   }
   return path.resolve(rootDir, "..", "shell"); // monorepo layout
+}
+
+function resolvePredictionDir() {
+  if (process.env.AI_MATERIALS_PREDICTION_DIR) {
+    return path.resolve(process.env.AI_MATERIALS_PREDICTION_DIR);
+  }
+  return path.resolve(rootDir, "..", "prediction"); // monorepo layout
+}
+
+function runPowershell(script) {
+  return new Promise((resolve) => {
+    try {
+      const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true });
+      let out = "";
+      child.stdout?.on("data", (d) => { out += String(d); });
+      child.on("close", (code) => resolve({ code, out }));
+      child.on("error", () => resolve({ code: -1, out: "" }));
+    } catch (_) {
+      resolve({ code: -1, out: "" });
+    }
+  });
+}
+
+// 실행 중인 PyQt 예측 앱(python main.py)의 PID. 없으면 null.
+// Flask(server.py) 등 다른 python 프로세스와 구분한다.
+async function findPredictionPid() {
+  if (process.platform !== "win32") return null;
+  const script = [
+    "$procs = Get-CimInstance Win32_Process -Filter \"Name='python.exe'\"",
+    "foreach ($p in $procs) {",
+    "  $cmd = [string]$p.CommandLine",
+    "  if ($cmd -match '(^|\\s|\"|\\\\)main\\.py(\\s|\"|$)') {",
+    "    Write-Output $p.ProcessId; break",
+    "  }",
+    "}",
+  ].join(" ");
+  try {
+    const { out } = await runPowershell(script);
+    const pid = parseInt(String(out).trim(), 10);
+    return Number.isFinite(pid) && pid > 0 ? pid : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function focusProcessWindow(pid) {
+  if (process.platform !== "win32" || !pid) return false;
+  const script = [
+    `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue`,
+    "if (-not $p -or -not $p.MainWindowHandle -or $p.MainWindowHandle -eq 0) { exit 1 }",
+    "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class MAPSWin { [DllImport(\"user32.dll\")] public static extern bool ShowWindow(System.IntPtr h, int n); [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(System.IntPtr h); [DllImport(\"user32.dll\")] public static extern bool IsIconic(System.IntPtr h); }'",
+    "if ([MAPSWin]::IsIconic($p.MainWindowHandle)) { [MAPSWin]::ShowWindow($p.MainWindowHandle, 9) | Out-Null }",
+    "if ([MAPSWin]::SetForegroundWindow($p.MainWindowHandle)) { exit 0 } else { exit 2 }",
+  ].join("; ");
+  try {
+    const { code } = await runPowershell(script);
+    return code === 0;
+  } catch (_) {
+    return false;
+  }
 }
 
 function focusShellWindow() {
@@ -184,8 +245,53 @@ ipcMain.handle("app:getBackendUrl", () => "http://127.0.0.1:8765");
 
 ipcMain.handle("prediction:open", async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
-  return openShell(win);
+  return openPrediction(win);
 });
+
+// 물성 예측은 PyQt 데스크톱 앱으로 직접 기동한다 (셸 경유 없음).
+// 전략: 일단 스스로 최소화 → 떠 있는 PyQt를 앞으로, 없으면 기동한다.
+async function openPrediction(win) {
+  try {
+    if (win && !win.isDestroyed() && win.isMinimizable()) win.minimize();
+  } catch (_) {}
+
+  const existingPid = await findPredictionPid();
+  if (existingPid) {
+    const focused = await focusProcessWindow(existingPid);
+    return { started: true, reused: true, focused, pid: existingPid };
+  }
+
+  const predictionDir = resolvePredictionDir();
+  if (!fs.existsSync(path.join(predictionDir, "main.py"))) {
+    dialog.showErrorBox(
+      "예측 앱을 찾을 수 없음",
+      `예측 앱 디렉터리가 없습니다:\n${predictionDir}\n\nAI_MATERIALS_PREDICTION_DIR 환경변수를 확인하세요.`
+    );
+    return { started: false, reason: "not-found" };
+  }
+
+  const pythonCmd = process.env.AI_MATERIALS_PYTHON
+    || (process.platform === "win32" ? "python" : "python3");
+  try {
+    fileLog("[main] starting prediction app in", predictionDir);
+    predictionProcess = spawn(pythonCmd, ["main.py"], {
+      cwd: predictionDir,
+      stdio: "ignore",
+      shell: process.platform === "win32",
+      windowsHide: false,
+    });
+    predictionProcess.on("error", (err) => {
+      predictionProcess = null;
+      dialog.showErrorBox("예측 앱 실행 실패", String(err?.message ?? err));
+    });
+    predictionProcess.on("exit", () => { predictionProcess = null; });
+  } catch (err) {
+    predictionProcess = null;
+    dialog.showErrorBox("예측 앱 실행 실패", String(err?.message ?? err));
+    return { started: false, reason: "spawn-failed" };
+  }
+  return { started: true, path: predictionDir, focused: false };
+}
 
 ipcMain.handle("app:close", async (event) => {
   // PyQt 은퇴 후: 대시보드 버튼은 셸로 귀환한다. 셸 기동 성공 시에만 창을 닫고,

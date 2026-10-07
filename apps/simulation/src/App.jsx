@@ -1122,7 +1122,7 @@ function App() {
             ← 대시보드
           </button>
           <button
-            title="통합 런처 열기 (물성 예측은 런처의 예측 탭에서)"
+            title="물성 예측 앱 열기 (PyQt)"
             disabled={isOpeningPrediction}
             onClick={async () => {
               if (isOpeningPrediction) return;
@@ -1130,11 +1130,11 @@ function App() {
               try {
                 const result = await window.desktopApi?.openPrediction?.();
                 if (result?.reused) {
-                  addLog(result.focused ? "통합 런처 창을 앞으로 가져왔습니다." : "통합 런처가 이미 실행 중입니다.");
+                  addLog(result.focused ? "예측 앱 창을 앞으로 가져왔습니다." : "예측 앱이 이미 실행 중입니다.");
                 } else if (result && !result.started) {
-                  addLog(`통합 런처 실행 실패: ${result.reason ?? "unknown"}`);
+                  addLog(`예측 앱 실행 실패: ${result.reason ?? "unknown"}`);
                 } else if (result && !result.focused) {
-                  addLog("통합 런처를 시작했습니다. 창이 보이지 않으면 작업표시줄을 확인하세요.");
+                  addLog("예측 앱을 시작했습니다. 창이 보이지 않으면 작업표시줄을 확인하세요.");
                 }
               } finally {
                 setIsOpeningPrediction(false);
