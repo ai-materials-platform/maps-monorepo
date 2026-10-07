@@ -172,45 +172,140 @@ async function runCurve() {
   }
 }
 
+let _pdCurve = null;
+let _pdZoom = null;
+
 function renderCurve(box, curve) {
+  _pdCurve = curve;
+  _pdZoom = null;
+  drawCurve(box);
+}
+
+function drawCurve(box) {
+  const curve = _pdCurve;
   const W = 640, H = 380, PAD_L = 58, PAD_B = 42, PAD_T = 14, PAD_R = 14;
   const xs = curve.strain, ys = curve.stress;
-  const xMax = Math.max(...xs) * 1.05 || 1;
-  const yMax = Math.max(...ys) * 1.15 || 1;
-  const X = (x) => PAD_L + (x / xMax) * (W - PAD_L - PAD_R);
-  const Y = (y) => H - PAD_B - (y / yMax) * (H - PAD_T - PAD_B);
-  const line = xs.map((x, i) => `${X(x).toFixed(1)},${Y(ys[i]).toFixed(1)}`).join(' ');
+  const fullX = [0, (Math.max(...xs) * 1.08) || 1];
+  const fullY = [0, (Math.max(...ys) * 1.20) || 1];
+  const zx = (_pdZoom && _pdZoom.x) || fullX;
+  const zy = (_pdZoom && _pdZoom.y) || fullY;
+  const X = (x) => PAD_L + ((x - zx[0]) / (zx[1] - zx[0])) * (W - PAD_L - PAD_R);
+  const Y = (y) => H - PAD_B - ((y - zy[0]) / (zy[1] - zy[0])) * (H - PAD_T - PAD_B);
+
+  const pts = curve.points || {};
+  const yX = pts.Yield ? pts.Yield[0] : 0;
+  const uX = pts.UTS ? pts.UTS[0] : xMaxSafe(xs);
+  const fX = pts.Fracture ? pts.Fracture[0] : fullX[1];
+  const zone = (x0, x1, color, label) => {
+    if (!(x1 > x0)) return '';
+    return `<rect x="${X(x0).toFixed(1)}" y="${PAD_T}" width="${(X(x1) - X(x0)).toFixed(1)}" height="${H - PAD_T - PAD_B}" fill="${color}" opacity="0.08"/>` +
+      `<text x="${((X(x0) + X(x1)) / 2).toFixed(1)}" y="${(PAD_T + 12).toFixed(1)}" font-size="10" fill="${color}" text-anchor="middle" font-weight="600">${label}</text>`;
+  };
+  const zones = zone(0, yX, '#1d4e89', 'Elastic') + zone(yX, uX, '#92400e', 'Hardening') + zone(uX, fX, '#7f1d1d', 'Necking');
+
+  const SEG_COLORS = { elastic: '#1d4e89', hardening: '#92400e', necking: '#7f1d1d' };
+  const segs = curve.segments || {};
+  const segLines = Object.entries(segs).filter(([, s]) => s && s.x && s.y).map(([name, s]) => {
+    const line = s.x.map((x, i) => `${X(x).toFixed(1)},${Y(s.y[i]).toFixed(1)}`).join(' ');
+    return `<polyline points="${line}" fill="none" stroke="${SEG_COLORS[name] || '#1d4e89'}" stroke-width="2.2"/>`;
+  }).join('') || `<polyline points="${xs.map((x, i) => `${X(x).toFixed(1)},${Y(ys[i]).toFixed(1)}`).join(' ')}" fill="none" stroke="#1d4e89" stroke-width="2.2"/>`;
 
   const PT_COLORS = { Yield: '#1d4e89', UpperYield: '#86198f', UTS: '#7f1d1d', Fracture: '#14532d' };
-  const markers = Object.entries(curve.points || {}).map(([name, pt]) => {
+  const markers = Object.entries(pts).map(([name, pt]) => {
     const c = PT_COLORS[name] || '#333';
     return `<circle cx="${X(pt[0]).toFixed(1)}" cy="${Y(pt[1]).toFixed(1)}" r="4.5" fill="${c}"/>` +
       `<text x="${(X(pt[0]) + 8).toFixed(1)}" y="${(Y(pt[1]) - 8).toFixed(1)}" font-size="11" fill="${c}" font-weight="600">${escHtml(name)} (${pt[0].toFixed(3)}, ${pt[1].toFixed(0)})</text>`;
   }).join('');
 
   const xticks = [0, 0.25, 0.5, 0.75, 1].map((f) => {
-    const v = xMax * f;
+    const v = zx[0] + (zx[1] - zx[0]) * f;
     return `<line x1="${X(v).toFixed(1)}" y1="${(H - PAD_B).toFixed(1)}" x2="${X(v).toFixed(1)}" y2="${(H - PAD_B + 5).toFixed(1)}" stroke="#94a3b8"/>` +
       `<text x="${X(v).toFixed(1)}" y="${(H - PAD_B + 18).toFixed(1)}" font-size="10" fill="#64748b" text-anchor="middle">${v.toFixed(3)}</text>`;
   }).join('');
   const yticks = [0, 0.25, 0.5, 0.75, 1].map((f) => {
-    const v = yMax * f;
+    const v = zy[0] + (zy[1] - zy[0]) * f;
     return `<line x1="${(PAD_L - 5).toFixed(1)}" y1="${Y(v).toFixed(1)}" x2="${PAD_L.toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#94a3b8"/>` +
       `<text x="${(PAD_L - 8).toFixed(1)}" y="${(Y(v) + 3).toFixed(1)}" font-size="10" fill="#64748b" text-anchor="end">${v.toFixed(0)}</text>`;
   }).join('');
 
+  let tough = '';
+  try {
+    let area = 0;
+    for (let i = 1; i < xs.length; i++) area += (xs[i] - xs[i - 1]) * (ys[i] + ys[i - 1]) / 2;
+    tough = `<div class="pd-modeline">인성 약 ${area.toFixed(0)} MJ/m³ (곡선下面积)</div>`;
+  } catch (_) {}
+
   const meta = curve.meta || {};
   const modeLine = [meta.yield_mode, meta.fracture_mode].filter(Boolean).join(' · ');
   box.innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" class="pd-svg" role="img" aria-label="stress-strain curve">` +
-    `<rect x="${PAD_L}" y="${PAD_T}" width="${W - PAD_L - PAD_R}" height="${H - PAD_T - PAD_B}" fill="none" stroke="#cbd5e1"/>` +
-    xticks + yticks +
-    `<polyline points="${line}" fill="none" stroke="#1d4e89" stroke-width="2"/>` +
-    markers +
+    `<svg id="pdCurveSvg" viewBox="0 0 ${W} ${H}" class="pd-svg" role="img" aria-label="stress-strain curve" style="cursor:crosshair;">` +
+    zones + xticks + yticks + segLines + markers +
+    `<rect id="pdZoomRect" x="0" y="0" width="0" height="0" fill="#1d4e89" opacity="0.15" stroke="#1d4e89" visibility="hidden"/>` +
     `<text x="${PAD_L}" y="${H - 8}" font-size="11" fill="#64748b">Strain (–)</text>` +
     `<text x="12" y="${PAD_T + 8}" font-size="11" fill="#64748b">Stress (MPa)</text>` +
     `</svg>` +
-    (modeLine ? `<div class="pd-modeline">${escHtml(modeLine)}</div>` : '');
+    (modeLine ? `<div class="pd-modeline">${escHtml(modeLine)}</div>` : '') + tough +
+    `<div class="pd-modeline">드래그: 영역 확대 · 더블클릭: 원복${_pdZoom ? ' (확대 중)' : ''}</div>`;
+  bindCurveZoom(box);
+}
+
+function xMaxSafe(xs) { return (Math.max(...xs) * 1.08) || 1; }
+
+function svgPoint(svg, evt) {
+  const pt = new DOMPoint(evt.clientX, evt.clientY);
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+function bindCurveZoom(box) {
+  const svg = box.querySelector('#pdCurveSvg');
+  if (!svg) return;
+  const W = 640, H = 380, PAD_L = 58, PAD_B = 42;
+  let start = null;
+  const rect = () => box.querySelector('#pdZoomRect');
+  const toData = (px, py) => {
+    const zx = (_pdZoom && _pdZoom.x) || [0, 1];
+    const zy = (_pdZoom && _pdZoom.y) || [0, 1];
+    const plotW = W - PAD_L - 14, plotH = H - PAD_B - 14;
+    return [
+      zx[0] + ((px - PAD_L) / plotW) * (zx[1] - zx[0]),
+      zy[0] + ((H - PAD_B - py) / plotH) * (zy[1] - zy[0]),
+    ];
+  };
+  svg.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const p = svgPoint(svg, e);
+    start = [p.x, p.y];
+  });
+  svg.addEventListener('mousemove', (e) => {
+    if (!start) return;
+    const p = svgPoint(svg, e);
+    const r = rect();
+    if (!r) return;
+    r.setAttribute('x', Math.min(start[0], p.x));
+    r.setAttribute('y', Math.min(start[1], p.y));
+    r.setAttribute('width', Math.abs(p.x - start[0]));
+    r.setAttribute('height', Math.abs(p.y - start[1]));
+    r.setAttribute('visibility', 'visible');
+  });
+  svg.addEventListener('mouseup', (e) => {
+    if (!start) return;
+    const p = svgPoint(svg, e);
+    const s = start;
+    start = null;
+    if (Math.abs(p.x - s[0]) < 5 || Math.abs(p.y - s[1]) < 5) return;
+    const [ax, ay] = toData(s[0], s[1]);
+    const [bx, by] = toData(p.x, p.y);
+    const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx);
+    const y0 = Math.min(ay, by), y1 = Math.max(ay, by);
+    if (!(x1 > x0) || !(y1 > y0)) return;
+    _pdZoom = { x: [x0, x1], y: [y0, y1] };
+    drawCurve(box);
+  });
+  svg.addEventListener('dblclick', () => {
+    if (!_pdZoom) return;
+    _pdZoom = null;
+    drawCurve(box);
+  });
 }
 
 async function saveWorkspace() {

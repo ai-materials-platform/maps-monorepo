@@ -566,6 +566,13 @@ def curve():
             yield_mode=yield_mode, luders_strain=luders_strain,
             fracture_mode=fracture_mode,
         )
+
+        def _seg_xy(pair, step=2):
+            xs = np.asarray(pair[0]).tolist()[::step]
+            ys = np.asarray(pair[1]).tolist()[::step]
+            return {'x': [round(float(v), 6) for v in xs],
+                    'y': [round(float(v), 3) for v in ys]}
+
         return jsonify({
             'status': 'success',
             'model_type': model_label,
@@ -578,7 +585,7 @@ def curve():
                            for k, v in points.items()},
                 'meta': {k: (round(float(v), 4) if isinstance(v, (int, float)) and not isinstance(v, bool) else v)
                          for k, v in meta.items()},
-                'segments': {k: None for k in segments.keys()},
+                'segments': {k: _seg_xy(v) for k, v in segments.items()},
             },
         })
     except Exception as exc:
