@@ -639,6 +639,20 @@ ipcMain.handle('integration:startSimulationApp', async () => {
     simulationWindow.loadURL('http://127.0.0.1:5173');
     simulationWindow.on('closed', () => {
       simulationWindow = null;
+      // 시뮬 창을 닫으면 vite도 함께 내린다 (다음 기동은 fresh boot).
+      // 그냥 두면 :5173이 계속 물려서 "이미 실행 중" 오해를 산다.
+      try {
+        if (isProcessRunning(simulationViteProcess)) {
+          if (process.platform === 'win32') {
+            const { execFile } = require('node:child_process');
+            execFile('taskkill', ['/F', '/T', '/PID', String(simulationViteProcess.pid)]);
+          } else {
+            simulationViteProcess.kill();
+          }
+          logService('simulation-vite', 'stopped with simulation window');
+        }
+      } catch (_) {}
+      simulationViteProcess = null;
       // 시뮬레이션 창을 닫으면 숨겨둔 shell 대시보드를 다시 앞으로
       try {
         if (mainWindow && !mainWindow.isDestroyed()) {
