@@ -1,8 +1,65 @@
 "use strict";
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
+
+// stock 메뉴(File/Edit/...) 제거 — 손 안 댄 티가 남. 패키징 후 메뉴 없음.
+function setupAppMenu() {
+  // stock 영문 메뉴 대신 한글 실기능 메뉴 (PyQt 메뉴바와 통일).
+  // action 항목은 렌더러로 전달해서 실제 기능에 연결한다.
+  const send = (action, payload) => {
+    const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+    const target = wins[0];
+    if (target) target.webContents.send('menu-action', { action, payload });
+  };
+  const template = [
+    { label: '파일', submenu: [
+      { label: '보고서 생성', click: () => send('report:open') },
+      { label: 'CSV 내보내기', click: () => send('data:export-csv') },
+      { label: 'JSON 내보내기', click: () => send('data:export-json') },
+      { type: 'separator' },
+      { label: '상태 저장', click: () => send('state:save') },
+      { type: 'separator' },
+      { label: '종료', click: () => app.quit() },
+    ]},
+    { label: '편집', submenu: [
+      { label: '실행 취소', role: 'undo' },
+      { label: '다시 실행', role: 'redo' },
+      { type: 'separator' },
+      { label: '잘라내기', role: 'cut' },
+      { label: '복사', role: 'copy' },
+      { label: '붙여넣기', role: 'paste' },
+      { label: '전체 선택', role: 'selectAll' },
+    ]},
+    { label: '보기', submenu: [
+      { label: '새로고침', click: (_m, w) => { if (w && !w.isDestroyed()) w.reload(); } },
+      { label: '전체 화면 전환', click: (_m, w) => { if (w && !w.isDestroyed()) w.setFullScreen(!w.isFullScreen()); } },
+      ...(app.isPackaged ? [] : [{ label: '개발자 도구', click: (_m, w) => { if (w && !w.isDestroyed()) w.webContents.toggleDevTools(); } }]),
+    ]},
+    { label: '도움말', submenu: [
+      { label: 'MAPS 시뮬레이션 정보', click: () => {
+        dialog.showMessageBox({
+          type: 'info',
+          title: 'MAPS 시뮬레이션',
+          message: 'MAPS 시뮬레이션',
+          detail: '조성 기반 물성 예측 및 인장 시험 3D 시뮬레이션\n' +
+                  `Electron ${process.versions.electron} / Chrome ${process.versions.chrome}`,
+        });
+      }},
+    ]},
+  ];
+  if (!app.isPackaged) {
+    template.push({ label: '개발', submenu: [
+      { role: 'reload' },
+      { role: 'forceReload' },
+      { role: 'toggleDevTools' },
+      { type: 'separator' },
+      { role: 'quit' },
+    ]});
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 // 시뮬 전용 프로필 디렉터리 (셸과 공유 금지 — 공유 시 single-instance 락 충돌로
 // 나중에 뜨는 쪽이 조용히 종료됨)
@@ -160,6 +217,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  setupAppMenu();
   await ensureBackend();
   createWindow();
 

@@ -603,6 +603,19 @@ function bindEvents() {
     applyTheme(isDark ? 'light' : 'dark');
   });
 
+  // Native menu actions (main process menu bar)
+  if (window.integrationApi?.onMenuAction) {
+    window.integrationApi.onMenuAction((msg) => {
+      const action = msg && msg.action;
+      if (!action) return;
+      if (action.startsWith('nav:')) {
+        switchPage(action.slice(4));
+      } else if (action === 'sim:start') {
+        openSimulationPlatform();
+      }
+    });
+  }
+
   // Nav page switching
   document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
     btn.addEventListener('click', () => switchPage(btn.dataset.page));
