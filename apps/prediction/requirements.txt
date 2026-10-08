@@ -1,5 +1,4 @@
-tensorflow
-tensorflow-probability
+# "TFP" 모델은 sklearn MLP 부트스트랩 앙상블 — tensorflow 불필요 (번들 1.1GB 차지했음)
 pandas
 xlrd
 openpyxl

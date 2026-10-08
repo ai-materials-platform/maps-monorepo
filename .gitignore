@@ -5,6 +5,8 @@ dist/
 npm-debug.log*
 apps/shell/dist_electron/
 apps/shell/dist_python/
+# build_win.py가 apps/prediction/assets/icon.ico를 복사해 만든다
+apps/shell/assets/icon.ico
 apps/simulation/dist/
 
 # ---- Python ----
