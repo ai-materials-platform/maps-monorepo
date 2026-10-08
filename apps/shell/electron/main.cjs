@@ -635,6 +635,8 @@ ipcMain.handle('integration:startPredictionApp', async (_event, workspace) => {
     const env = app.isPackaged ? { ...process.env, ...modelsDirEnv() } : pythonEnv();
     env.AI_MAPS_WORKSPACE_ROOT = getWorkspacesRoot();
     env.AI_MATERIALS_SIMULATION_DIR = simulationRepoDir;
+    // 패키징: 시뮬 폴더엔 빌드된 dist뿐이라 PyQt가 npm으로 못 띄운다 → 셸에 '--open-simulation'으로 요청
+    if (app.isPackaged) env.AI_MAPS_SHELL_EXE = process.execPath;
     if (workspace) env.AI_MAPS_WORKSPACE = workspace;
     logService('prediction-app', `starting ${exe}${workspace ? ` (workspace: ${workspace})` : ''}`);
     predictionAppProcess = spawnManaged('prediction-app', exe, args, {
@@ -979,6 +981,9 @@ app.whenReady().then(async () => {
   if (app.isPackaged) projectsDir = path.join(app.getPath('userData'), 'projects');
   await fsp.mkdir(projectsDir, { recursive: true });
   createWindow();
+  if (process.argv.includes('--open-simulation')) {
+    openSimulationWindow().catch((err) => logService('simulation', `open failed: ${err.message}`));
+  }
   ensurePredictionApi().catch((err) => logService('prediction-api', `start failed: ${err.message}`));
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
@@ -988,7 +993,12 @@ const gotSingleLock = app.requestSingleInstanceLock();
 if (!gotSingleLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    // PyQt '시뮬레이션' 버튼(패키징): MAPS.exe --open-simulation → 떠 있는 셸이 시뮬 창을 연다
+    if (argv.includes('--open-simulation')) {
+      openSimulationWindow().catch((err) => logService('simulation', `open failed: ${err.message}`));
+      return;
+    }
     const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
     const target = wins[0];
     if (target) {
