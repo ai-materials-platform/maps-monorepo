@@ -1,7 +1,7 @@
 """ModelEngine 불확실도가 실제 오차 크기에 맞게 보정되는지 확인한다.
 
 앙상블 편차만 쓰면 TFP는 과신한다 (실데이터 ±2σ 포함률 71~77%, 연신율 ±0.8%).
-검증 세트로 출력별 계수를 맞추면(분산 스케일링) 노이즈 수준만큼 σ가 나온다.
+검증 세트로 출력별 σ' = a + b·σ를 맞추면 노이즈 수준만큼 σ가 나온다.
 
 실행: python apps/prediction/src/engine/test_model_engine_noise.py
 """
@@ -46,13 +46,21 @@ def test_noise_survives_save_load_and_old_files_still_load():
         m.save(p)
         m2 = ModelEngine(output_dim=2)
         m2.load(p)
-        assert np.allclose(m2.std_scale, m.std_scale)
-        # 기존 저장 형식(std_scale 없음)도 그대로 로드 → 예전처럼 앙상블 편차만
+        assert np.allclose(m2.std_affine, m.std_affine)
+        assert (m.std_affine >= 0).all(), "a, b는 음수가 될 수 없다"
+        # 기존 저장 형식(보정값 없음)도 그대로 로드 → 예전처럼 앙상블 편차만
         joblib.dump({"model": m.model, "type": "RF"}, p)
         m3 = ModelEngine(output_dim=2)
         m3.load(p)
-        assert m3.std_scale is None
+        assert m3.std_affine is None
         m3.predict(Xv[:5])
+        # #11 형식(계수만, std_scale)은 a=0, b=계수로 읽는다
+        joblib.dump({"model": m.model, "type": "RF", "std_scale": np.array([2.0, 3.0])}, p)
+        m4 = ModelEngine(output_dim=2)
+        m4.load(p)
+        _, raw = m4._predict_raw(Xv[:5])
+        _, cal = m4.predict(Xv[:5])
+        assert np.allclose(cal, raw * np.array([2.0, 3.0]))
 
 
 if __name__ == "__main__":
