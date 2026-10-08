@@ -1,8 +1,6 @@
-import os
-
-import joblib
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from src.engine import model_registry
 from src.engine.model_engine import ModelEngine
 
 
@@ -37,11 +35,6 @@ class TrainingThread(QThread):
             self.progress.emit(f"{self.model_type} 모델을 학습하는 중입니다.")
             model_engine.train(X_train, y_train)
 
-            if not os.path.exists("models"):
-                os.makedirs("models")
-            model_engine.save("models/material_model.pkl")
-            joblib.dump(self.data_engine, "models/data_engine.pkl")
-
             self.progress.emit("학습 결과를 평가하는 중입니다.")
             mean_scaled, _ = model_engine.predict(X_test)
             y_pred = self.data_engine.inverse_transform_y(mean_scaled)
@@ -50,6 +43,13 @@ class TrainingThread(QThread):
 
             r2 = r2_score(y_raw_test, y_pred, multioutput="raw_values")
             mae = mean_absolute_error(y_raw_test, y_pred, multioutput="raw_values")
+
+            # Flask(:5000) 모델 목록에도 뜨도록 레지스트리에 등록 — 시뮬 "예측 모델"에서 선택 가능
+            reg_name = model_registry.save_trained(
+                model_engine, self.data_engine, self.model_type, len(X_train),
+                model_registry.metrics_by_target(r2, mae),
+            )
+            self.progress.emit(f"모델 저장 완료: {reg_name} (Flask를 재시작하면 기본 모델에도 반영됩니다)")
 
             self.finished.emit(
                 {

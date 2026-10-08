@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('integrationApi', {
   sendChatMessage: (message, history) => ipcRenderer.invoke('chatbot:sendMessage', { message, history }),
   listResults: () => ipcRenderer.invoke('results:list'),
   downloadResultExcel: (projectName, saveName) => ipcRenderer.invoke('results:downloadExcel', { projectName, saveName }),
+  openResultInSimulation: (projectName, saveName) => ipcRenderer.invoke('results:openInSimulation', { projectName, saveName }),
   onServiceLog: (cb) => ipcRenderer.on('service-log', (_e, line) => cb(line)),
   getSystemState: () => ipcRenderer.invoke('integration:getSystemState'),
   loadProjects: () => ipcRenderer.invoke('projects:load'),

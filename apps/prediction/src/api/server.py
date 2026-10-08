@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 
 from src.engine.data_engine import DataEngine
 from src.engine.model_engine import ModelEngine
+from src.engine import model_registry
 from src.engine.high_carbon_correction import (
     apply_high_carbon_correction,
     correction_badge,
@@ -26,7 +27,7 @@ TARGET_NAMES = ['yield_stress_mpa', 'uts_mpa', 'elongation_pct', 'area_reduction
 # (__file__ = apps/prediction/src/api/server.py → 2단계 위가 apps/prediction)
 APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 UPLOAD_FOLDER = os.path.join(APP_DIR, 'data', 'uploads')
-MODELS_DIR = os.path.join(APP_DIR, 'models')
+MODELS_DIR = model_registry.MODELS_DIR
 
 app = Flask(__name__)
 CORS(app)
@@ -243,40 +244,14 @@ def train():
         )
         model_engine.train(X_train, y_train)
 
-        os.makedirs('models', exist_ok=True)
-        model_engine.save(os.path.join(MODELS_DIR, 'material_model.pkl'))
-        joblib.dump(data_engine, os.path.join(MODELS_DIR, 'data_engine.pkl'))
-
-        # 레지스트리: 타임스탬프 이름으로 모델+데이터엔진 쌍 보관 (재시작 후에도 선택 가능)
-        stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        reg_name = f"custom-{model_type}-{stamp}"
-        model_engine.save(os.path.join(MODELS_DIR, f'{reg_name}.model.pkl'))
-        joblib.dump(data_engine, os.path.join(MODELS_DIR, f'{reg_name}.data.pkl'))
-        reg_meta = {
-            'name': reg_name,
-            'model_type': model_type,
-            'saved_date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'samples': int(len(X_train)),
-        }
-
         mean_scaled, _ = model_engine.predict(X_test)
         y_pred = data_engine.inverse_transform_y(mean_scaled)
 
         from sklearn.metrics import r2_score, mean_absolute_error
         r2 = r2_score(y_raw_test, y_pred, multioutput='raw_values')
         mae = mean_absolute_error(y_raw_test, y_pred, multioutput='raw_values')
-
-        target_names = ['yield_stress_mpa', 'uts_mpa', 'elongation_pct', 'area_reduction_pct']
-        metrics = {
-            name: {'r2': round(float(r2[i]), 4), 'mae': round(float(mae[i]), 2)}
-            for i, name in enumerate(target_names)
-        }
-        reg_meta['metrics'] = metrics
-        try:
-            with open(os.path.join(MODELS_DIR, f'{reg_name}.meta.json'), 'w', encoding='utf-8') as f:
-                json.dump(reg_meta, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        metrics = model_registry.metrics_by_target(r2, mae)
+        reg_name = model_registry.save_trained(model_engine, data_engine, model_type, len(X_train), metrics)
 
         return jsonify({'status': 'success', 'model_type': model_type,
                         'metrics': metrics, 'model_name': reg_name})
@@ -596,4 +571,5 @@ def curve():
 if __name__ == '__main__':
     _load_saved_resources()
     print('AI 소재 발굴 API 서버가 5000번 포트에서 시작되었습니다.')
-    app.run(host='0.0.0.0', port=5000)
+    # 데스크톱 앱 전용 — 같은 네트워크의 다른 PC에서 접근하지 못하게 로컬에만 바인딩
+    app.run(host='127.0.0.1', port=5000)

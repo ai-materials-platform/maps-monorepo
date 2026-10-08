@@ -1,59 +1,46 @@
-"""MAPS Windows build script: make_ico -> PyInstaller -> electron-builder"""
+"""MAPS Windows build: icon -> 시뮬 프론트(vite) -> PyInstaller(scripts/maps.spec) -> electron-builder(셸)"""
 import os
 import subprocess
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # apps/prediction
+APPS = os.path.dirname(ROOT)
+SHELL_DIR = os.path.join(APPS, "shell")
+SIM_DIR = os.path.join(APPS, "simulation")
 os.chdir(ROOT)
 
-def run(cmd, **kwargs):
-    print(f"\n>>> {' '.join(cmd) if isinstance(cmd, list) else cmd}")
-    result = subprocess.run(cmd, shell=isinstance(cmd, str), **kwargs)
+
+def run(cmd, cwd=None):
+    print(f"\n>>> {' '.join(cmd) if isinstance(cmd, list) else cmd}  (cwd={cwd or ROOT})")
+    result = subprocess.run(cmd, shell=isinstance(cmd, str), cwd=cwd)
     if result.returncode != 0:
         print(f"ERROR: command failed (exit {result.returncode})")
         sys.exit(result.returncode)
+
 
 print("=" * 50)
 print("MAPS - Windows Build")
 print("=" * 50)
 
-# Step 1: icon.ico
-print("\n[1/3] Generating icon.ico...")
+print("\n[1/4] Generating icon.ico...")
 run([sys.executable, "scripts/make_ico.py"])
 
-# Step 2: PyInstaller
-print("\n[2/3] PyInstaller packaging...")
+print("\n[2/4] Simulation frontend (vite build)...")
+run("npm run build", cwd=SIM_DIR)
+
+print("\n[3/4] PyInstaller (main_app + prediction_api + simulation_api)...")
 run([sys.executable, "-m", "pip", "install", "pyinstaller", "-q"])
 run([
-    sys.executable, "-m", "PyInstaller",
-    "main.py",
-    "--name", "main_app",
-    "--onedir",
-    "--windowed",
-    "--distpath", "dist_python",
+    sys.executable, "-m", "PyInstaller", "scripts/maps.spec",
+    # 셸 package.json extraResources가 apps/shell/dist_python/main_app 를 집어간다
+    "--distpath", os.path.join(SHELL_DIR, "dist_python"),
     "--workpath", "build_pyinstaller",
-    "--add-data", "src;src",
-    "--add-data", "assets;assets",
-    "--add-data", "models;models",
-    "--hidden-import", "PyQt6.sip",
-    "--hidden-import", "sklearn.utils._typedefs",
-    "--hidden-import", "sklearn.neighbors._partition_nodes",
-    "--hidden-import", "sklearn.tree._utils",
-    "--collect-all", "xgboost",
-    "--collect-all", "lightgbm",
-    "--collect-all", "catboost",
-    "--exclude-module", "PyQt5",
-    "--exclude-module", "torch",
-    "--exclude-module", "torchvision",
-    "--exclude-module", "cv2",
-    "--icon", "assets/icon.ico",
     "--noconfirm",
 ])
 
-# Step 3: electron-builder
-print("\n[3/3] electron-builder...")
-run("npm run build:win")
+print("\n[4/4] electron-builder...")
+run("npm run build:win", cwd=SHELL_DIR)
 
 print("\n" + "=" * 50)
-print("Done! Installer: dist_electron/")
+print(f"Done! Installer: {os.path.join(SHELL_DIR, 'dist_electron')}")
 print("=" * 50)

@@ -35,6 +35,16 @@
         "from": "dist_python/main_app",
         "to": "main_app",
         "filter": ["**/*"]
+      },
+      {
+        "from": "../simulation/dist",
+        "to": "simulation/dist",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../simulation/electron",
+        "to": "simulation/electron",
+        "filter": ["preload.cjs", "shared.cjs"]
       }
     ],
     "win": {

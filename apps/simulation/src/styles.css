@@ -376,7 +376,18 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   pointer-events: none;
   border-radius: 2px;
 }
-.holo-label.left   { left: 14px;  bottom: 170px; }
+.viewport-left-stack {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+.viewport-left-stack > .cae-colormap,
+.viewport-left-stack > .holo-label { position: static; }
 .holo-label.right  { right: 14px; top: 14px;     }
 .holo-label.bottom { left: 34px;  bottom: 16px;  }
 

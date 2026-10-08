@@ -3,63 +3,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
-
-// stock 메뉴(File/Edit/...) 제거 — 손 안 댄 티가 남. 패키징 후 메뉴 없음.
-function setupAppMenu() {
-  // stock 영문 메뉴 대신 한글 실기능 메뉴 (PyQt 메뉴바와 통일).
-  // action 항목은 렌더러로 전달해서 실제 기능에 연결한다.
-  const send = (action, payload) => {
-    const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
-    const target = wins[0];
-    if (target) target.webContents.send('menu-action', { action, payload });
-  };
-  const template = [
-    { label: '파일', submenu: [
-      { label: '보고서 생성', click: () => send('report:open') },
-      { label: 'CSV 내보내기', click: () => send('data:export-csv') },
-      { label: 'JSON 내보내기', click: () => send('data:export-json') },
-      { type: 'separator' },
-      { label: '상태 저장', click: () => send('state:save') },
-      { type: 'separator' },
-      { label: '종료', click: () => app.quit() },
-    ]},
-    { label: '편집', submenu: [
-      { label: '실행 취소', role: 'undo' },
-      { label: '다시 실행', role: 'redo' },
-      { type: 'separator' },
-      { label: '잘라내기', role: 'cut' },
-      { label: '복사', role: 'copy' },
-      { label: '붙여넣기', role: 'paste' },
-      { label: '전체 선택', role: 'selectAll' },
-    ]},
-    { label: '보기', submenu: [
-      { label: '새로고침', click: (_m, w) => { if (w && !w.isDestroyed()) w.reload(); } },
-      { label: '전체 화면 전환', click: (_m, w) => { if (w && !w.isDestroyed()) w.setFullScreen(!w.isFullScreen()); } },
-      ...(app.isPackaged ? [] : [{ label: '개발자 도구', click: (_m, w) => { if (w && !w.isDestroyed()) w.webContents.toggleDevTools(); } }]),
-    ]},
-    { label: '도움말', submenu: [
-      { label: 'MAPS 시뮬레이션 정보', click: () => {
-        dialog.showMessageBox({
-          type: 'info',
-          title: 'MAPS 시뮬레이션',
-          message: 'MAPS 시뮬레이션',
-          detail: '조성 기반 물성 예측 및 인장 시험 3D 시뮬레이션\n' +
-                  `Electron ${process.versions.electron} / Chrome ${process.versions.chrome}`,
-        });
-      }},
-    ]},
-  ];
-  if (!app.isPackaged) {
-    template.push({ label: '개발', submenu: [
-      { role: 'reload' },
-      { role: 'forceReload' },
-      { role: 'toggleDevTools' },
-      { type: 'separator' },
-      { role: 'quit' },
-    ]});
-  }
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
+const { BACKEND_URL, PRELOAD_PATH, buildSimMenu, saveToWorkspace, savePdf } = require("./shared.cjs");
 
 // 시뮬 전용 프로필 디렉터리 (셸과 공유 금지 — 공유 시 single-instance 락 충돌로
 // 나중에 뜨는 쪽이 조용히 종료됨)
@@ -238,12 +182,14 @@ function createWindow() {
     title: "MAPS",
     icon: path.join(rootDir, "assets", "icon.png"),
     webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
+      preload: PRELOAD_PATH,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false
     }
   });
+
+  win.setMenu(buildSimMenu(win));
 
   win.webContents.on("did-finish-load", () => {
     fileLog("[main] did-finish-load → showing window");
@@ -278,7 +224,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  setupAppMenu();
+  Menu.setApplicationMenu(null); // stock 영문 메뉴 제거 — 창마다 buildSimMenu로 붙인다
   await ensureBackend();
   createWindow();
 
@@ -299,7 +245,7 @@ app.on("before-quit", () => {
   if (shellProcess && !shellProcess.killed) shellProcess.kill();
 });
 
-ipcMain.handle("app:getBackendUrl", () => "http://127.0.0.1:8765");
+ipcMain.handle("app:getBackendUrl", () => BACKEND_URL);
 
 ipcMain.handle("prediction:open", async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -433,97 +379,8 @@ async function openShell(win) {
   return { started: true, path: shellDir, focused: true };
 }
 
-ipcMain.handle("simulation:saveToWorkspace", async (_event, { alloyName, prediction, simulation, composition, process: proc }) => {
-  const workspacesRoot = process.env.AI_MAPS_WORKSPACE_ROOT
-    || path.join(path.resolve(__dirname, '..', '..'), 'workspaces');
+// 셸 결과 저장소와 같은 폴더(apps/prediction/workspaces)에 저장해야 대시보드에 보인다.
+ipcMain.handle("simulation:saveToWorkspace", async (_event, data) =>
+  saveToWorkspace(process.env.AI_MAPS_WORKSPACE_ROOT || path.join(resolvePredictionDir(), "workspaces"), data));
 
-  const now = new Date();
-  const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
-  const projectName = `Simulation_${dateStr}`;
-  const saveName = (alloyName || 'result').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_');
-
-  const saveDir = path.join(workspacesRoot, projectName, saveName);
-  fs.mkdirSync(saveDir, { recursive: true });
-
-  // Write CSV (항목, 값, 단위 형식)
-  const rows = [
-    ['항목', '값', '단위'],
-    ['합금명', alloyName ?? '-', ''],
-    ...Object.entries(composition ?? {}).map(([el, v]) => [`조성-${el}`, v, '%']),
-    ['인장강도 UTS', prediction?.utsMpa ?? prediction?.strengthMpa ?? '-', 'MPa'],
-    ['0.2% 항복강도', prediction?.yieldStressMpa ?? '-', 'MPa'],
-    ['연신율', prediction?.elongationPercent ?? '-', '%'],
-    ['단면 수축률', prediction?.areaReductionPercent ?? '-', '%'],
-    ['탄성 계수', prediction?.elasticityGpa ?? '-', 'GPa'],
-    ['열전도율', prediction?.thermalConductivity ?? '-', 'W/mK'],
-    ['용융점', prediction?.meltingPoint ?? '-', '°C'],
-    ['예측 신뢰도', prediction?.predictionConfidence ?? '-', '%'],
-    ['최대 응력', simulation?.result?.maxStressMpa ?? '-', 'MPa'],
-    ['변형률', simulation?.result?.strainPercent ?? '-', '%'],
-    ['온도', simulation?.result?.temperatureC ?? '-', '°C'],
-    ['파손 위험', simulation?.result?.failureRisk ?? '-', ''],
-    ['용체화 온도', proc?.['Solution_treatment_temperature'] ?? '-', '°C'],
-    ['처리 시간', proc?.['Solution_treatment_time(s)'] ?? '-', 's'],
-    ['테스트 온도', proc?.['Temperature (K)'] ?? '-', 'K'],
-    ['저장 시각', now.toISOString(), ''],
-  ];
-  const csv = rows.map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-  fs.writeFileSync(path.join(saveDir, 'preprocessed_data.csv'), csv, 'utf8');
-
-  // Write state.json
-  const state = {
-    saved_date: now.toISOString(),
-    simulation: true,
-    alloy_name: alloyName,
-    r2_avg: null
-  };
-  fs.writeFileSync(path.join(saveDir, 'state.json'), JSON.stringify(state, null, 2), 'utf8');
-
-  return { projectName, saveName };
-});
-
-ipcMain.handle("pdf:save", async (event, { contentHtml = "" } = {}) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return { success: false };
-
-  const { filePath, canceled } = await dialog.showSaveDialog(win, {
-    title: "보고서 PDF 저장",
-    defaultPath: "재료시험보고서.pdf",
-    filters: [{ name: "PDF 문서", extensions: ["pdf"] }],
-  });
-  if (canceled || !filePath) return { canceled: true };
-
-  // Write report content to a temp HTML file (pure white, no dark canvas)
-  const tmpHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; color: #1e1e1e;
-    font-family: 'Segoe UI', 'Noto Sans KR', Arial, sans-serif; font-size: 12px; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 4px 8px; border-bottom: 1px solid #ececec; font-size: 11px; }
-  th { background: #f0f0f0; font-weight: 600; text-align: left; }
-  h2 { font-size: 13px; font-weight: 700; color: #1a5fa8;
-       border-bottom: 2px solid #1a5fa8; padding-bottom: 4px; margin: 0 0 10px; }
-  section { margin-bottom: 18px; page-break-inside: avoid; }
-  svg { overflow: visible; }
-  img { max-width: 100%; }
-  @page { margin: 15mm 12mm; size: A4; }
-</style>
-</head><body>${contentHtml}</body></html>`;
-
-  const tmpPath = path.join(app.getPath("temp"), "ai-materials-report.html");
-  await fs.promises.writeFile(tmpPath, tmpHtml, "utf-8");
-
-  const printWin = new BrowserWindow({
-    show: false,
-    backgroundColor: "#ffffff",
-    webPreferences: { nodeIntegration: false, contextIsolation: true },
-  });
-  await printWin.loadFile(tmpPath);
-  const data = await printWin.webContents.printToPDF({ printBackground: true, preferCSSPageSize: true });
-  printWin.close();
-  await fs.promises.unlink(tmpPath).catch(() => {});
-
-  await fs.promises.writeFile(filePath, data);
-  return { success: true, filePath };
-});
+ipcMain.handle("pdf:save", async (event, data) => savePdf(BrowserWindow.fromWebContents(event.sender), data));

@@ -200,6 +200,8 @@ def find_platform_project_dir():
     here = os.path.dirname(os.path.abspath(__file__))  # apps/simulation/backend
     candidates = [
         os.environ.get("AI_MATERIALS_PLATFORM_DIR"),
+        # 패키징(PyInstaller): 예측 앱과 같은 _internal에 models/가 들어 있다
+        getattr(sys, "_MEIPASS", None),
         # monorepo layout: apps/simulation/backend -> apps/prediction
         os.path.abspath(os.path.join(here, "..", "..", "prediction")),
         # legacy standalone checkouts
