@@ -427,6 +427,19 @@ class UISetupMixin:
             except OSError:
                 return False
 
+        # 패키징(셸이 띄운 PyQt): 시뮬 폴더엔 빌드된 화면뿐이라 npm으로 못 띄운다.
+        # 셸에 요청하면 중복 실행 방지(second-instance)로 떠 있는 셸이 시뮬 창을 연다.
+        shell_exe = os.environ.get("AI_MAPS_SHELL_EXE")
+        if shell_exe:
+            try:
+                subprocess.Popen([shell_exe, "--open-simulation"])
+            except Exception as exc:
+                QMessageBox.warning(self, "실행 실패", f"시뮬레이션을 열지 못했습니다:\n{exc}")
+                return
+            # 시뮬→PyQt 전환과 같은 방식: 내가 먼저 비켜야 시뮬 창이 가려지지 않는다
+            self.showMinimized()
+            return
+
         # Single instance: simulation already up -> bring it forward, don't spawn another
         if _tcp_open("127.0.0.1", 5173):
             if os.name == "nt":
@@ -460,8 +473,12 @@ class UISetupMixin:
             ),
             str(Path(__file__).parents[4] / "simulation"),
         )
-        if not Path(sim_dir).exists():
-            QMessageBox.warning(self, "경로 없음", f"시뮬레이션 레포를 찾을 수 없습니다:\n{sim_dir}")
+        if not (Path(sim_dir) / "package.json").exists():
+            # 예전엔 폴더만 확인해 npm이 조용히 실패했다 (출력 DEVNULL)
+            QMessageBox.warning(
+                self, "경로 없음",
+                f"시뮬레이션 개발 폴더(package.json)를 찾을 수 없습니다:\n{sim_dir}\n\n통합 런처(MAPS)에서 시뮬레이션을 열어 주세요.",
+            )
             return
         npm = "npm.cmd" if os.name == "nt" else "npm"
         kwargs = {"cwd": sim_dir, "shell": False, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}

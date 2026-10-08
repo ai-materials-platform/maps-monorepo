@@ -635,6 +635,8 @@ ipcMain.handle('integration:startPredictionApp', async (_event, workspace) => {
     const env = app.isPackaged ? { ...process.env, ...modelsDirEnv() } : pythonEnv();
     env.AI_MAPS_WORKSPACE_ROOT = getWorkspacesRoot();
     env.AI_MATERIALS_SIMULATION_DIR = simulationRepoDir;
+    // 패키징: 시뮬 폴더엔 빌드된 dist뿐이라 PyQt가 npm으로 못 띄운다 → 셸에 '--open-simulation'으로 요청
+    if (app.isPackaged) env.AI_MAPS_SHELL_EXE = process.execPath;
     if (workspace) env.AI_MAPS_WORKSPACE = workspace;
     logService('prediction-app', `starting ${exe}${workspace ? ` (workspace: ${workspace})` : ''}`);
     predictionAppProcess = spawnManaged('prediction-app', exe, args, {
@@ -725,10 +727,20 @@ async function openSimulationWindow() {
     });
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
     logService('simulation-app', 'opened simulation window at http://127.0.0.1:5173');
-  } else {
-    simulationWindow.focus();
   }
+  bringToFront(simulationWindow);
   return { started: true, path: simulationRepoDir };
+}
+
+// 다른 프로세스(PyQt) 요청으로 열면 Windows가 포커스 탈취를 막아 창이 뒤에 깔린다
+// (가려진 창은 렌더링도 멈춰 '버튼이 반응 없음'처럼 보임) → 잠깐 항상-위로 올렸다 내린다.
+function bringToFront(win) {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.setAlwaysOnTop(true);
+  win.focus();
+  win.setAlwaysOnTop(false);
 }
 
 // 결과 저장소 "불러오기": 저장된 시뮬 입력값을 시뮬 창에 되살린다.
@@ -975,10 +987,16 @@ function createWindow() {  mainWindow = new BrowserWindow({
 }
 
 app.whenReady().then(async () => {
+  // 두 번째 실행(락 실패)은 app.quit()만 하고 끝나야 한다 — 이 핸들러가 락 확인보다 먼저 등록돼 있어
+  // 그냥 두면 창·백엔드를 또 띄우고(--open-simulation이면 시뮬 백엔드까지) 고아 프로세스를 남긴다.
+  if (!gotSingleLock) return;
   setupAppMenu();
   if (app.isPackaged) projectsDir = path.join(app.getPath('userData'), 'projects');
   await fsp.mkdir(projectsDir, { recursive: true });
   createWindow();
+  if (process.argv.includes('--open-simulation')) {
+    openSimulationWindow().catch((err) => logService('simulation', `open failed: ${err.message}`));
+  }
   ensurePredictionApi().catch((err) => logService('prediction-api', `start failed: ${err.message}`));
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
@@ -988,7 +1006,12 @@ const gotSingleLock = app.requestSingleInstanceLock();
 if (!gotSingleLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    // PyQt '시뮬레이션' 버튼(패키징): MAPS.exe --open-simulation → 떠 있는 셸이 시뮬 창을 연다
+    if (argv.includes('--open-simulation')) {
+      openSimulationWindow().catch((err) => logService('simulation', `open failed: ${err.message}`));
+      return;
+    }
     const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
     const target = wins[0];
     if (target) {
