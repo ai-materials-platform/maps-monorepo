@@ -435,6 +435,9 @@ class UISetupMixin:
                 subprocess.Popen([shell_exe, "--open-simulation"])
             except Exception as exc:
                 QMessageBox.warning(self, "실행 실패", f"시뮬레이션을 열지 못했습니다:\n{exc}")
+                return
+            # 시뮬→PyQt 전환과 같은 방식: 내가 먼저 비켜야 시뮬 창이 가려지지 않는다
+            self.showMinimized()
             return
 
         # Single instance: simulation already up -> bring it forward, don't spawn another

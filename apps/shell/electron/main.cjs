@@ -727,10 +727,20 @@ async function openSimulationWindow() {
     });
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
     logService('simulation-app', 'opened simulation window at http://127.0.0.1:5173');
-  } else {
-    simulationWindow.focus();
   }
+  bringToFront(simulationWindow);
   return { started: true, path: simulationRepoDir };
+}
+
+// 다른 프로세스(PyQt) 요청으로 열면 Windows가 포커스 탈취를 막아 창이 뒤에 깔린다
+// (가려진 창은 렌더링도 멈춰 '버튼이 반응 없음'처럼 보임) → 잠깐 항상-위로 올렸다 내린다.
+function bringToFront(win) {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.setAlwaysOnTop(true);
+  win.focus();
+  win.setAlwaysOnTop(false);
 }
 
 // 결과 저장소 "불러오기": 저장된 시뮬 입력값을 시뮬 창에 되살린다.
