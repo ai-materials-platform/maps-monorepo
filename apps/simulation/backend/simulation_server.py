@@ -306,13 +306,16 @@ def build_platform_input(raw_composition, process=None):
         "Al": 0,
         "Sn": 0,
         "Pb": 0,
-        "Solution_treatment_temperature": 1050,
+        # 화면에 없는 입력은 학습 데이터(STMECH_AUS_SS) 대표값으로 채운다.
+        # 범위 밖 값이면 MLP 앙상블(TFP)이 외삽해 불확실도가 ±1000MPa까지 튄다.
+        "Solution_treatment_temperature": 1323,  # K (= 1050°C). API 단위는 모델과 같은 K
+
         "Solution_treatment_time(s)": 3600,
         "Water_Quenched_after_s.t.": 1,
         "Air_Quenched_after_s.t.": 0,
-        "Grains mm-2": 12000,
+        "Grains mm-2": 231,  # 학습 중앙값 (범위 37~1024)
         "Type of melting": 1,
-        "Size of ingot": 100,
+        "Size of ingot": 3.9,  # 학습 중앙값 (범위 0.21~16)
         "Product form": 1,
         "Temperature (K)": 293,
     }

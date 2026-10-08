@@ -42,6 +42,11 @@ const DEFAULT_PROCESS = {
   "Temperature (K)": 293
 };
 
+// 화면은 용체화 온도를 °C로 다루지만 백엔드/모델 특성은 K다 — 보낼 때만 변환한다.
+function toModelProcess(p) {
+  return { ...p, "Solution_treatment_temperature": Number(p["Solution_treatment_temperature"]) + 273.15 };
+}
+
 const TESTS = [
   { id: "strength",    label: "강도",   icon: Gauge,        specimenOnly: true  },
   { id: "bending",    label: "휘어짐", icon: Activity,     specimenOnly: true  },
@@ -686,7 +691,7 @@ function App() {
       const raw = await postBackend("/predict", {
         composition: nextComposition,
         densityScale: nextDensity,
-        process: nextProcess,
+        process: toModelProcess(nextProcess),
         model: simModel,
       });
 
@@ -748,7 +753,7 @@ function App() {
         densityScale,
         testType: testId,
         scale: selectedAlloy?.scale ?? 1,
-        process
+        process: toModelProcess(process)
       });
       setSimulation(result);
       setPrediction(result.prediction);
@@ -1324,7 +1329,7 @@ function App() {
               </button>
             </div>
             <div style={{ marginBottom: 2 }}>
-              <ControlSlider label={`용체화 온도 ${process["Solution_treatment_temperature"]}°C`} min={900} max={1500} value={process["Solution_treatment_temperature"]} onChange={(value) => updateProcess("Solution_treatment_temperature", value)} />
+              <ControlSlider label={`용체화 온도 ${process["Solution_treatment_temperature"]}°C`} min={1000} max={1200} value={process["Solution_treatment_temperature"]} onChange={(value) => updateProcess("Solution_treatment_temperature", value)} />
               <p style={{ margin: "2px 0 8px 2px", fontSize: 10, color: "var(--text-muted)", lineHeight: 1.4, fontFamily: "var(--mono)" }}>합금을 균질한 고용체로 만들기 위해 가열하는 온도. 높을수록 합금 원소 용해도↑, 석출물 재용해</p>
             </div>
             <div style={{ marginBottom: 2 }}>

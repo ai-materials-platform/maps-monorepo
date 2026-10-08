@@ -410,7 +410,7 @@ function defaultInputs() {
       'Water_Quenched_after_s.t.': 1,
       'Air_Quenched_after_s.t.': 0,
       'Temperature (K)': 293,
-      'Grains mm-2': 12000
+      'Grains mm-2': 231
     },
     testType: 'strength',
     scale: 1

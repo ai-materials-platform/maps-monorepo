@@ -1096,13 +1096,13 @@ class UISetupMixin:
         proc_group_layout.setContentsMargins(12, 12, 12, 12)
         proc_group_layout.setSpacing(12)
         proc_defaults = {
-            "Solution_treatment_temperature": "1050",
+            "Solution_treatment_temperature": "1323",  # K (= 1050°C) — 필드 단위가 K
             "Solution_treatment_time(s)": "3600",
             "Water_Quenched_after_s.t.": "1",
             "Air_Quenched_after_s.t.": "0",
             "Grains mm-2": "500",
             "Type of melting": "2",
-            "Size of ingot": "50",
+            "Size of ingot": "3.9",  # 학습 범위 0.21~16 (50이면 범위 밖 → 불확실도 폭증)
             "Product form": "3",
             "Temperature (K)": "300",
         }
