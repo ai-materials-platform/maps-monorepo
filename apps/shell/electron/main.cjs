@@ -977,6 +977,9 @@ function createWindow() {  mainWindow = new BrowserWindow({
 }
 
 app.whenReady().then(async () => {
+  // 두 번째 실행(락 실패)은 app.quit()만 하고 끝나야 한다 — 이 핸들러가 락 확인보다 먼저 등록돼 있어
+  // 그냥 두면 창·백엔드를 또 띄우고(--open-simulation이면 시뮬 백엔드까지) 고아 프로세스를 남긴다.
+  if (!gotSingleLock) return;
   setupAppMenu();
   if (app.isPackaged) projectsDir = path.join(app.getPath('userData'), 'projects');
   await fsp.mkdir(projectsDir, { recursive: true });
