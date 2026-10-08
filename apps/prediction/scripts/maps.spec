@@ -26,14 +26,26 @@ hiddenimports = [
     "sklearn.neighbors._partition_nodes",
     "sklearn.tree._utils",
 ]
+# 테스트 서브모듈은 제외 — xgboost.testing은 hypothesis·pytest를 요구해 클린 venv에서 수집이 실패한다
+_no_tests = lambda name: ".testing" not in name and ".tests" not in name
 for pkg in ("xgboost", "lightgbm", "catboost"):
-    d, b, h = collect_all(pkg)
+    d, b, h = collect_all(pkg, filter_submodules=_no_tests)
     datas += d
     binaries += b
     hiddenimports += h
 # 시뮬 백엔드는 src.engine을 동적 import하고, 피클 복원에도 엔진 클래스가 필요하다
 engine_modules = collect_submodules("src.engine")
-excludes = ["PyQt5", "torch", "torchvision", "cv2"]
+# 안전장치: 클린 venv에서 빌드하면 대부분 안 들어오지만, 선택 import로 딸려 오는 대형 패키지는 명시적으로 막는다.
+# (전역 Python으로 빌드했을 때 tensorflow 1.1GB·llvmlite·pyarrow·netCDF4·jupyter 계열이 들어와 2.5GB가 됐음)
+excludes = [
+    "PyQt5", "torch", "torchvision", "cv2",
+    "tensorflow", "tensorflow_probability", "keras", "tensorboard", "grpc", "h5py",
+    "numba", "llvmlite", "pyarrow", "netCDF4", "onnxruntime",
+    "IPython", "ipykernel", "ipywidgets", "jupyter", "jupyter_client", "jupyter_core",
+    "notebook", "nbformat", "nbconvert", "zmq", "jedi",
+    "streamlit", "pymc", "pytensor", "arviz",
+    "pytest", "hypothesis",
+]
 
 
 def analysis(script, extra_hidden=(), with_data=False):

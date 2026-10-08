@@ -11,14 +11,14 @@
     "build:win": "electron-builder --win --x64",
     "build:mac": "electron-builder --mac"
   },
-  "dependencies": {
-    "electron": "^34.5.8"
-  },
   "devDependencies": {
+    "electron": "^34.5.8",
     "electron-builder": "^25.1.8"
   },
   "build": {
     "appId": "com.maps.platform",
+    "electronVersion": "34.5.8",
+    "npmRebuild": false,
     "productName": "MAPS",
     "copyright": "Copyright © 2025 MAPS Team",
     "directories": {
