@@ -263,6 +263,10 @@ function loadSettingsLogs() {
 }
 
 /* ── Results Repository ── */
+function escHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 async function loadResults() {
   const content = document.getElementById('rsContent');
   content.innerHTML = '<div class="rs-empty">불러오는 중...</div>';
@@ -284,7 +288,7 @@ async function loadResults() {
     apiHtml = '<div class="rs-empty">API 서버(:5000) 미연결 — 웹 저장소를 보려면 Flask를 실행하세요.</div>';
   }
   content.innerHTML =
-    `<div class="section-heading"><h3>데스크톱 저장소 (PyQt)</h3></div>${pyqtHtml}` +
+    `<div class="section-heading"><h3>데스크톱 저장소 (PyQt·시뮬레이션)</h3></div>${pyqtHtml}` +
     `<div class="section-heading" style="margin-top:1rem;"><h3>웹 저장소 (Flask)</h3></div>${apiHtml}`;
 }
 
@@ -338,7 +342,7 @@ function renderResultsInto(box, projects) {
 function renderResults(projects) {
   const content = document.getElementById('rsContent');
   if (!projects || projects.length === 0) {
-    content.innerHTML = '<div class="rs-empty">저장된 워크스페이스가 없습니다.<br>물성예측 앱에서 분석 기록을 저장하면 여기에 표시됩니다.</div>';
+    content.innerHTML = '<div class="rs-empty">저장된 워크스페이스가 없습니다.<br>물성예측 앱이나 시뮬레이션에서 결과를 저장하면 여기에 표시됩니다.</div>';
     return;
   }
   content.innerHTML = projects.map((proj) => {
@@ -347,9 +351,10 @@ function renderResults(projects) {
       return `
         <div class="rs-save-row">
           <div class="rs-save-info">
-            <div class="rs-save-name">${s.saveName}</div>
+            <div class="rs-save-name">${escHtml(s.saveName)}</div>
             <div class="rs-save-meta">${s.savedDate || '—'}&nbsp;&nbsp;${r2}&nbsp;&nbsp;<span class="rs-rowcount">${s.rowCount}행</span></div>
           </div>
+          ${s.simLoadable ? `<button class="rs-dl-btn" data-sim-project="${encodeURIComponent(proj.projectName)}" data-sim-save="${encodeURIComponent(s.saveName)}">불러오기</button>` : ''}
           <button class="rs-dl-btn excel"
                   data-project="${encodeURIComponent(proj.projectName)}"
                   data-save="${encodeURIComponent(s.saveName)}">
@@ -360,7 +365,7 @@ function renderResults(projects) {
     return `
       <div class="rs-project-card">
         <div class="rs-project-header">
-          <span class="rs-project-name">${proj.projectName}</span>
+          <span class="rs-project-name">${escHtml(proj.projectName)}</span>
           <span class="rs-project-count">${proj.saves.length}개 저장됨</span>
         </div>
         <div class="rs-save-list">${rows}</div>
@@ -637,6 +642,14 @@ function bindEvents() {
         decodeURIComponent(btn.dataset.project),
         decodeURIComponent(btn.dataset.save)
       );
+      return;
+    }
+    const simBtn = e.target.closest('[data-sim-project]');
+    if (simBtn) {
+      window.integrationApi.openResultInSimulation(
+        decodeURIComponent(simBtn.dataset.simProject),
+        decodeURIComponent(simBtn.dataset.simSave)
+      ).catch((err) => showToast(err.message || String(err), 'error'));
       return;
     }
     const loadBtn = e.target.closest('[data-ws-load]');

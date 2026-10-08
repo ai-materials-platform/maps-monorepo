@@ -38,9 +38,12 @@ const _simEnv = process.env.AI_MATERIALS_SIMULATION_DIR || '';
 const simulationRepoDir = _simEnv
   ? path.resolve(path.dirname(process.execPath), _simEnv)
   : app.isPackaged
-    ? path.resolve(path.dirname(process.execPath), '..', 'ai-materials-discovery-platform-simulation')
+    ? path.join(process.resourcesPath, 'simulation')
     : path.resolve(rootDir, '..', 'simulation');
 const simulationApiBase = 'http://127.0.0.1:8765';
+// 패키징: PyQt(main_app.exe)·Flask(prediction_api.exe)·시뮬 백엔드(simulation_api.exe)가
+// 한 PyInstaller 폴더의 _internal을 공유한다 (apps/prediction/scripts/maps.spec).
+const bundledPythonDir = app.isPackaged ? path.join(process.resourcesPath, 'main_app') : null;
 
 function readVenvExecutable(repoDir) {
   const cfgPath = path.join(repoDir, '.venv', 'pyvenv.cfg');
@@ -202,6 +205,19 @@ function isProcessRunning(child) {
   return !!child && !child.killed && child.exitCode === null && child.signalCode === null;
 }
 
+// shell:true로 띄운 자식은 cmd.exe라 kill()만으론 python이 남는다 → 트리째 종료.
+// 동기 실행: 비동기면 앱 종료(before-quit)가 먼저 끝나 cmd만 죽고 python이 고아로 남는다.
+function killTree(child) {
+  if (!isProcessRunning(child)) return;
+  if (process.platform === 'win32') {
+    try {
+      require('node:child_process').execFileSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { windowsHide: true, stdio: 'ignore' });
+    } catch (_) {}
+  } else {
+    child.kill();
+  }
+}
+
 function clearProcessRef(label, child) {
   if (label === 'prediction-app' && predictionAppProcess === child) {
     predictionAppProcess = null;
@@ -214,6 +230,7 @@ function clearProcessRef(label, child) {
   if (label === 'simulation-app' && simulationAppProcess === child) simulationAppProcess = null;
   if (label === 'simulation-vite' && simulationViteProcess === child) simulationViteProcess = null;
   if (label === 'simulation-api' && simulationApiProcess === child) simulationApiProcess = null;
+  if (label === 'prediction-api' && predictionApiProcess === child) predictionApiProcess = null;
 }
 function spawnManaged(label, command, args, options = {}) {
   const useShell = process.platform === 'win32';
@@ -276,6 +293,15 @@ async function waitForSimulationApi() {
 
 async function ensureSimulationApi() {
   try { return await requestJson('GET', `${simulationApiBase}/health`); } catch (_) {}
+  if (app.isPackaged) {
+    if (!isProcessRunning(simulationApiProcess)) {
+      simulationApiProcess = spawnManaged('simulation-api', path.join(bundledPythonDir, 'simulation_api.exe'), [], {
+        cwd: bundledPythonDir,
+        hidden: true
+      });
+    }
+    return waitForSimulationApi();
+  }
   if (!repoExists(simulationRepoDir, path.join('backend', 'simulation_server.py'))) {
     throw new Error(`Simulation repository not found: ${simulationRepoDir}`);
   }
@@ -290,6 +316,36 @@ async function ensureSimulationApi() {
     });
   }
   return waitForSimulationApi();
+}
+
+/* ── Prediction Flask API (:5000) — 셸이 띄운다. 시뮬 커스텀 모델·웹 저장소가 쓴다. ── */
+let predictionApiProcess = null;
+
+function modelsDirEnv() {
+  // 패키징: 설치 폴더는 쓰기 불가일 수 있어 학습 모델은 userData에 둔다 (PyQt·Flask 공통)
+  return app.isPackaged ? { MAPS_MODELS_DIR: path.join(app.getPath('userData'), 'models') } : {};
+}
+
+async function ensurePredictionApi() {
+  if (isProcessRunning(predictionApiProcess)) return;
+  if (await isTcpPortOccupied(5000)) {
+    logService('prediction-api', 'port 5000 already occupied — reusing existing server');
+    return;
+  }
+  if (app.isPackaged) {
+    predictionApiProcess = spawnManaged('prediction-api', path.join(bundledPythonDir, 'prediction_api.exe'), [], {
+      cwd: bundledPythonDir, env: modelsDirEnv(), hidden: true
+    });
+  } else {
+    if (!repoExists(predictionRepoDir, path.join('src', 'api', 'server.py'))) {
+      logService('prediction-api', `server.py not found under ${predictionRepoDir}`);
+      return;
+    }
+    predictionApiProcess = spawnManaged('prediction-api', resolvePythonExe(), [path.join('src', 'api', 'server.py')], {
+      cwd: predictionRepoDir, env: pythonEnv(), hidden: true
+    });
+  }
+  logService('prediction-api', 'starting Flask on :5000');
 }
 
 function projectId() {
@@ -576,7 +632,7 @@ ipcMain.handle('integration:startPredictionApp', async (_event, workspace) => {
       args = ['main.py'];
       cwd = predictionRepoDir;
     }
-    const env = app.isPackaged ? { ...process.env } : pythonEnv();
+    const env = app.isPackaged ? { ...process.env, ...modelsDirEnv() } : pythonEnv();
     env.AI_MAPS_WORKSPACE_ROOT = getWorkspacesRoot();
     env.AI_MATERIALS_SIMULATION_DIR = simulationRepoDir;
     if (workspace) env.AI_MAPS_WORKSPACE = workspace;
@@ -594,11 +650,12 @@ ipcMain.handle('integration:startPredictionApp', async (_event, workspace) => {
   return { started: true, path: predictionRepoDir };
 });
 
-ipcMain.handle('integration:startSimulationApp', async () => {
+ipcMain.handle('integration:startSimulationApp', async () => openSimulationWindow());
+
+async function ensureSimulationVite() {
   if (!repoExists(simulationRepoDir, 'package.json')) throw new Error(`Simulation repository not found: ${simulationRepoDir}`);
   const viteCmd = resolveSimulationBin('vite');
-  const electronCmd = resolveSimulationBin('electron');
-  if (!fs.existsSync(viteCmd) || !fs.existsSync(electronCmd)) {
+  if (!fs.existsSync(viteCmd)) {
     logService('simulation', 'node_modules not found — running npm install...');
     await new Promise((resolve, reject) => {
       const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -609,7 +666,6 @@ ipcMain.handle('integration:startSimulationApp', async () => {
     });
   }
   if (!fs.existsSync(viteCmd)) throw new Error(`Vite executable not found after npm install: ${viteCmd}`);
-  if (!fs.existsSync(electronCmd)) throw new Error(`Electron executable not found after npm install: ${electronCmd}`);
 
   if (!isProcessRunning(simulationViteProcess)) {
     const portBound = await isTcpPortOccupied(5173);
@@ -624,8 +680,15 @@ ipcMain.handle('integration:startSimulationApp', async () => {
       });
     }
   }
-
   await waitForViteServer();
+}
+
+async function openSimulationWindow() {
+  // 시뮬 백엔드(:8765)가 없으면 예측이 "Failed to fetch" → 로컬 대체 모델로 떨어진다.
+  // 창은 기다리지 않고 띄우고, 백엔드는 병렬로 올린다.
+  ensureSimulationApi().catch((err) => logService('simulation-api', `start failed: ${err.message}`));
+  // 패키징 빌드는 vite 없이 빌드된 dist를 바로 연다
+  if (!app.isPackaged) await ensureSimulationVite();
 
   // Open simulation in a new BrowserWindow (reuses MAPS Electron — no separate electron binary needed)
   if (!simulationWindow || simulationWindow.isDestroyed()) {
@@ -634,21 +697,19 @@ ipcMain.handle('integration:startSimulationApp', async () => {
       backgroundColor: '#0B1020',
       title: 'MAPS',
       icon: path.join(__dirname, '..', 'assets', 'icon.png'),
-      webPreferences: { contextIsolation: true, nodeIntegration: false }
+      webPreferences: { preload: simShared().PRELOAD_PATH, contextIsolation: true, nodeIntegration: false }
     });
-    simulationWindow.loadURL('http://127.0.0.1:5173');
+    // 셸 메뉴는 숨겨진 대시보드로 신호를 보내므로 시뮬 창엔 시뮬 전용 메뉴를 붙인다.
+    simulationWindow.setMenu(simShared().buildSimMenu(simulationWindow));
+    if (app.isPackaged) simulationWindow.loadFile(path.join(simulationRepoDir, 'dist', 'index.html'));
+    else simulationWindow.loadURL('http://127.0.0.1:5173');
     simulationWindow.on('closed', () => {
       simulationWindow = null;
       // 시뮬 창을 닫으면 vite도 함께 내린다 (다음 기동은 fresh boot).
       // 그냥 두면 :5173이 계속 물려서 "이미 실행 중" 오해를 산다.
       try {
         if (isProcessRunning(simulationViteProcess)) {
-          if (process.platform === 'win32') {
-            const { execFile } = require('node:child_process');
-            execFile('taskkill', ['/F', '/T', '/PID', String(simulationViteProcess.pid)]);
-          } else {
-            simulationViteProcess.kill();
-          }
+          killTree(simulationViteProcess);
           logService('simulation-vite', 'stopped with simulation window');
         }
       } catch (_) {}
@@ -668,6 +729,19 @@ ipcMain.handle('integration:startSimulationApp', async () => {
     simulationWindow.focus();
   }
   return { started: true, path: simulationRepoDir };
+}
+
+// 결과 저장소 "불러오기": 저장된 시뮬 입력값을 시뮬 창에 되살린다.
+ipcMain.handle('results:openInSimulation', async (_event, { projectName, saveName }) => {
+  const stateFile = path.join(workspacesRoot, path.basename(projectName), path.basename(saveName), 'state.json');
+  const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  if (!state.composition) throw new Error('이 저장 기록엔 조성 정보가 없어 불러올 수 없습니다.');
+  await openSimulationWindow();
+  const payload = { alloyName: state.alloy_name, composition: state.composition, process: state.process };
+  const send = () => simulationWindow?.webContents.send('menu-action', { action: 'state:load', payload });
+  if (simulationWindow.webContents.isLoading()) simulationWindow.webContents.once('did-finish-load', () => setTimeout(send, 800));
+  else send();
+  return { opened: true };
 });
 
 ipcMain.handle('integration:runPrediction', async (_event, payload) => runPrediction(payload));
@@ -676,6 +750,21 @@ ipcMain.handle('integration:runWorkflow', async (_event, payload) => {
   const prediction = await runPrediction(payload);
   const simulation = await runSimulation(payload);
   return { prediction, simulation };
+});
+
+/* ── Simulation window IPC (preload: apps/simulation/electron/preload.cjs) ── */
+// 지연 require: 패키징 빌드엔 시뮬 소스가 없을 수 있어 기동 시점에 깨지면 안 된다.
+function simShared() {
+  return require(path.join(simulationRepoDir, 'electron', 'shared.cjs'));
+}
+ipcMain.handle('app:getBackendUrl', () => simulationApiBase);
+ipcMain.handle('simulation:saveToWorkspace', async (_event, data) => simShared().saveToWorkspace(getWorkspacesRoot(), data));
+ipcMain.handle('pdf:save', async (event, data) => simShared().savePdf(BrowserWindow.fromWebContents(event.sender), data));
+// "← 대시보드": 시뮬 창을 닫으면 closed 핸들러가 대시보드를 다시 띄운다.
+ipcMain.handle('app:close', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) win.close();
+  return { closed: true };
 });
 
 /* ── Results Repository ── */
@@ -701,17 +790,18 @@ ipcMain.handle('results:list', async () => {
       const csvFile  = path.join(projectPath, saveName, 'preprocessed_data.csv');
       const stateFile = path.join(projectPath, saveName, 'state.json');
       if (!fs.existsSync(csvFile)) continue;
-      let savedDate = '', r2Avg = null;
+      let savedDate = '', r2Avg = null, simLoadable = false;
       if (fs.existsSync(stateFile)) {
         try {
           const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
           savedDate = state.saved_date || '';
           r2Avg = state.r2_avg ?? null;
+          simLoadable = !!(state.simulation && state.composition);
         } catch (_) {}
       }
       // count rows (lines - 1 for header)
       const lines = fs.readFileSync(csvFile, 'utf8').split('\n').filter(l => l.trim());
-      saves.push({ saveName, savedDate, r2Avg, rowCount: Math.max(0, lines.length - 1) });
+      saves.push({ saveName, savedDate, r2Avg, simLoadable, rowCount: Math.max(0, lines.length - 1) });
     }
     if (saves.length > 0) {
       saves.sort((a, b) => b.savedDate.localeCompare(a.savedDate));
@@ -799,14 +889,15 @@ ipcMain.handle('results:getData', async (_event, { projectName, saveName }) => {
 });
 
 ipcMain.handle('integration:stopServices', async () => {
-  for (const child of [predictionAppProcess, simulationAppProcess, simulationViteProcess, simulationApiProcess]) {
-    if (isProcessRunning(child)) child.kill();
+  for (const child of [predictionAppProcess, simulationAppProcess, simulationViteProcess, simulationApiProcess, predictionApiProcess]) {
+    killTree(child);
   }
   predictionAppProcess = null;
   predictionAppWorkspace = null;
   simulationAppProcess = null;
   simulationViteProcess = null;
   simulationApiProcess = null;
+  predictionApiProcess = null;
   return { stopped: true };
 });
 
@@ -888,6 +979,7 @@ app.whenReady().then(async () => {
   if (app.isPackaged) projectsDir = path.join(app.getPath('userData'), 'projects');
   await fsp.mkdir(projectsDir, { recursive: true });
   createWindow();
+  ensurePredictionApi().catch((err) => logService('prediction-api', `start failed: ${err.message}`));
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
@@ -913,5 +1005,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  if (isProcessRunning(simulationApiProcess)) simulationApiProcess.kill();
+  killTree(simulationApiProcess);
+  killTree(predictionApiProcess);
+  killTree(simulationViteProcess);
 });
