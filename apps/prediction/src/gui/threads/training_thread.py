@@ -20,7 +20,7 @@ class TrainingThread(QThread):
             self.data_engine.load_data()
             self.progress.emit(self.data_engine.format_quality_report())
 
-            X_train, X_test, y_train, _, _, y_raw_test = self.data_engine.preprocess_data()
+            X_train, X_test, y_train, y_test_scaled, _, y_raw_test = self.data_engine.preprocess_data()
             if len(X_train) == 0:
                 self.finished.emit("전처리 후 학습 가능한 데이터가 없습니다.")
                 return
@@ -33,7 +33,8 @@ class TrainingThread(QThread):
             )
 
             self.progress.emit(f"{self.model_type} 모델을 학습하는 중입니다.")
-            model_engine.train(X_train, y_train)
+            # 검증 잔차로 데이터 노이즈를 잡아 불확실도 바닥값으로 쓴다
+            model_engine.train(X_train, y_train, X_val=X_test, y_val=y_test_scaled)
 
             self.progress.emit("학습 결과를 평가하는 중입니다.")
             mean_scaled, _ = model_engine.predict(X_test)
