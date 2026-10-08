@@ -242,7 +242,8 @@ def train():
             model_type=model_type,
             output_dim=y_train.shape[1],
         )
-        model_engine.train(X_train, y_train)
+        # 검증 잔차로 데이터 노이즈를 잡아 불확실도 바닥값으로 쓴다
+        model_engine.train(X_train, y_train, X_val=X_test, y_val=y_test_scaled)
 
         mean_scaled, _ = model_engine.predict(X_test)
         y_pred = data_engine.inverse_transform_y(mean_scaled)
