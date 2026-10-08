@@ -16,7 +16,6 @@ import {
   Gauge,
   Layers3,
   Link,
-  Maximize2,
   Minus,
   Pause,
   Play,
@@ -36,6 +35,12 @@ import * as THREE from "three";
 import { generateStressStrainCurve, vonMisesAtVertex, vonMisesBending, predictPhases, classifyFracture } from "./lib/physics.js";
 import ReportModal from "./components/ReportModal.jsx";
 import LatticeViewer from "./components/LatticeViewer.jsx";
+
+const DEFAULT_PROCESS = {
+  "Solution_treatment_temperature": 1050,
+  "Solution_treatment_time(s)": 3600,
+  "Temperature (K)": 293
+};
 
 const TESTS = [
   { id: "strength",    label: "강도",   icon: Gauge,        specimenOnly: true  },
@@ -524,9 +529,11 @@ function App() {
   const [composition, setComposition] = useState(PRESETS[0].composition);
   const [densityScale, setDensityScale] = useState(PRESETS[0].densityScale);
   const [prediction, setPrediction] = useState(DEFAULT_PREDICTION);
-  const [activeTest, setActiveTest] = useState("strength");
+  const [activeTest, setActiveTest] = useState(null);
   const [activeMode, setActiveMode] = useState("thermal");
-  const [shape, setShape] = useState("specimen");
+  // 도형은 시편 고정 (구·정육면체·직육면체 UI 제거).
+  // ponytail: DeformableShape/FracturedMesh의 비시편 분기는 아직 남아 있음 — 다시 안 쓰기로 확정되면 삭제.
+  const shape = "specimen";
   const [interactMode, setInteractMode] = useState("orbit");
   const orbitEnabledRef = useRef(true);
   const [resetKey, setResetKey] = useState(0);
@@ -542,17 +549,13 @@ function App() {
   const [playhead, setPlayhead] = useState(0);
   const [testTemp, setTestTemp] = useState(20);
   const [isPredicting, setIsPredicting] = useState(false);
-  const [isOpeningPrediction, setIsOpeningPrediction] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [platformStatus, setPlatformStatus] = useState({ available: false, error: "확인 중" });
+  const [backendOnline, setBackendOnline] = useState(false);
   const [simModel, setSimModel] = useState("pretrained");
   const [simModels, setSimModels] = useState([{ name: "pretrained", model_type: "RF" }]);
   const [predictionUrl, setPredictionUrl] = useState("");
-  const [process, setProcess] = useState({
-    "Solution_treatment_temperature": 1050,
-    "Solution_treatment_time(s)": 3600,
-    "Temperature (K)": 293
-  });
+  const [process, setProcess] = useState(DEFAULT_PROCESS);
   const [showReport, setShowReport] = useState(false);
   const [reportImageUrl, setReportImageUrl] = useState(null);
   const [showLattice, setShowLattice] = useState(false);
@@ -609,15 +612,32 @@ function App() {
   }, [playhead]);
 
   useEffect(() => {
-    getBackendJson("/platform/status")
-      .then((status) => {
-        setPlatformStatus(status);
-        if (status.available) addLog(`사전학습 모델 연결: ${status.modelType}, 평균 R2 ${status.r2Avg}`);
-      })
-      .catch((error) => {
-        setPlatformStatus({ available: false, error: error.message });
-        addLog("사전학습 모델 상태 확인 실패: 로컬 계산 모델 대기");
-      });
+    // 셸은 창과 백엔드(:8765)를 동시에 띄운다. 백엔드가 뜰 때까지 기다린 뒤 첫 예측을 돌려야
+    // "Failed to fetch" → 로컬 대체 모델로 떨어지지 않는다.
+    let cancelled = false;
+    (async () => {
+      for (let attempt = 0; attempt < 30 && !cancelled; attempt += 1) {
+        try {
+          const status = await getBackendJson("/platform/status");
+          if (cancelled) return;
+          setPlatformStatus(status);
+          setBackendOnline(true);
+          if (status.available) addLog(`사전학습 모델 연결: ${status.modelType}, 평균 R2 ${status.r2Avg}`);
+          break;
+        } catch (error) {
+          if (attempt === 29) {
+            setPlatformStatus({ available: false, error: error.message });
+            addLog("Python 백엔드(:8765) 연결 실패: 로컬 계산 모델 사용");
+          } else {
+            await new Promise((resolve) => window.setTimeout(resolve, 1500));
+          }
+        }
+      }
+      if (!cancelled && !didInitialPrediction.current) {
+        didInitialPrediction.current = true;
+        predictAlloy(PRESETS[0].composition, PRESETS[0].densityScale);
+      }
+    })();
     // Flask 학습 모델 목록 (없으면 사전학습만)
     fetch("http://127.0.0.1:5000/models")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
@@ -625,27 +645,24 @@ function App() {
         if (Array.isArray(data.models) && data.models.length) setSimModels(data.models);
       })
       .catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
+  // 메뉴 핸들러는 리스너를 한 번만 걸고 ref로 최신 상태의 함수를 부른다.
+  // (그냥 걸면 첫 렌더 시점의 prediction/composition으로 내보내기가 된다)
+  const menuHandlerRef = useRef(null);
+  menuHandlerRef.current = (msg) => {
+    const action = msg && msg.action;
+    if (action === "report:open") openReport();
+    else if (action === "data:export-csv") exportCSV();
+    else if (action === "data:export-json") exportJSON();
+    else if (action === "state:save") saveState();
+    else if (action === "dashboard:save") saveToDashboard();
+    else if (action === "state:load") loadSavedResult(msg.payload);
+  };
   useEffect(() => {
     if (!window.desktopApi?.onMenuAction) return undefined;
-    const handler = (msg) => {
-      const action = msg && msg.action;
-      if (action === "report:open") openReport();
-      else if (action === "data:export-csv") exportCSV();
-      else if (action === "data:export-json") exportJSON();
-      else if (action === "state:save") saveState();
-    };
-    window.desktopApi.onMenuAction(handler);
-    return undefined;
-  }, []);
-
-  useEffect(() => {
-    if (didInitialPrediction.current) return;
-    didInitialPrediction.current = true;
-    window.setTimeout(() => {
-      predictAlloy(PRESETS[0].composition, PRESETS[0].densityScale);
-    }, 350);
+    return window.desktopApi.onMenuAction((msg) => menuHandlerRef.current?.(msg));
   }, []);
 
   const filteredAlloys = alloys.filter((alloy) =>
@@ -662,13 +679,14 @@ function App() {
     setLogs((items) => [{ time: nowTime(), text }, ...items].slice(0, 10));
   }
 
-  async function predictAlloy(nextComposition = composition, nextDensity = densityScale) {
+  // targetId: 결과를 기록할 합금 (기본: 현재 선택). 방금 추가한 합금은 selectedId 클로저가 아직 옛값이라 명시한다.
+  async function predictAlloy(nextComposition = composition, nextDensity = densityScale, nextProcess = process, targetId = selectedId) {
     setIsPredicting(true);
     try {
       const raw = await postBackend("/predict", {
         composition: nextComposition,
         densityScale: nextDensity,
-        process,
+        process: nextProcess,
         model: simModel,
       });
 
@@ -698,7 +716,7 @@ function App() {
       setPrediction(normalized);
       setAlloys((items) =>
         items.map((item) =>
-          item.id === selectedId
+          item.id === targetId
             ? { ...item, composition: nextComposition, densityScale: nextDensity, prediction: normalized }
             : item
         )
@@ -715,7 +733,7 @@ function App() {
     }
   }
 
-  async function runSimulation(testId = activeTest) {
+  async function runSimulation(testId = activeTest ?? "strength") {
     if (testId !== activeTest) {
       setActiveTest(testId);
       setResetKey((k) => k + 1);
@@ -783,6 +801,32 @@ function App() {
     const { [element]: _, ...rest } = composition;
     setComposition(rest);
     addLog(`원소 제거: ${element}`);
+  }
+
+  // 결과 저장소 "불러오기" — 저장된 조성·공정 조건을 되살리고 다시 예측한다.
+  // 기존 합금을 덮어쓰지 않고 목록에 새 합금으로 추가해 선택한다.
+  function loadSavedResult(payload) {
+    if (!payload?.composition) return;
+    const nextProcess = { ...process, ...(payload.process ?? {}) };
+    didInitialPrediction.current = true; // 기본 프리셋 예측이 불러온 값을 덮어쓰지 않게
+    const alloy = {
+      id: `saved-${Date.now()}`,
+      name: payload.alloyName ?? "불러온 결과",
+      category: "결과 저장소",
+      composition: payload.composition,
+      densityScale,
+      prediction: DEFAULT_PREDICTION,
+      scale: 1,
+      visible: true,
+      savedAt: nowTime(),
+      color: "#57F2FF"
+    };
+    setAlloys((items) => [alloy, ...items]);
+    setSelectedId(alloy.id);
+    setProcess(nextProcess);
+    handleReset();
+    addLog(`저장 기록 불러옴: ${alloy.name}`);
+    predictAlloy(payload.composition, densityScale, nextProcess, alloy.id);
   }
 
   async function saveToDashboard() {
@@ -945,8 +989,10 @@ function App() {
     setPlaying(false);
     setPlayhead(0);
     setDeformStats({ maxStrain: 0, grabCount: 0, totalPull: 0 });
+    setActiveTest(null);
+    setTestTemp(20);
     setResetKey((k) => k + 1);
-    addLog("현재 테스트 변형 초기화 완료");
+    addLog("시뮬레이션 초기화 완료");
   }
 
   async function importPredictionFromUrl() {
@@ -1123,48 +1169,18 @@ function App() {
           <button
             title="대시보드로 돌아가기"
             onClick={() => window.desktopApi?.close()}
-            style={{
+            style={{ whiteSpace: "nowrap",
               display: "flex", alignItems: "center", gap: 5,
               height: 30, padding: "0 10px",
-              background: "transparent", border: "1px solid rgba(255,255,255,0.15)",
-              borderRadius: 6, color: "rgba(255,255,255,0.7)",
+              background: "var(--panel)", border: "1px solid var(--line)",
+              borderRadius: 6, color: "var(--text)",
               fontSize: 12, fontWeight: 600, cursor: "pointer",
               letterSpacing: "0.2px"
             }}
           >
             ← 대시보드
           </button>
-          <button
-            title="물성 예측 앱 열기 (PyQt)"
-            disabled={isOpeningPrediction}
-            onClick={async () => {
-              if (isOpeningPrediction) return;
-              setIsOpeningPrediction(true);
-              try {
-                const result = await window.desktopApi?.openPrediction?.();
-                if (result?.reused) {
-                  addLog(result.focused ? "예측 앱 창을 앞으로 가져왔습니다." : "예측 앱이 이미 실행 중입니다.");
-                } else if (result && !result.started) {
-                  addLog(`예측 앱 실행 실패: ${result.reason ?? "unknown"}`);
-                } else if (result && !result.focused) {
-                  addLog("예측 앱을 시작했습니다. 창이 보이지 않으면 작업표시줄을 확인하세요.");
-                }
-              } finally {
-                setIsOpeningPrediction(false);
-              }
-            }}
-            style={{
-              display: "flex", alignItems: "center", gap: 5,
-              height: 30, padding: "0 10px",
-              background: "rgba(99,179,237,0.12)", border: "1px solid rgba(99,179,237,0.3)",
-              borderRadius: 6, color: "#7EC8E3",
-              fontSize: 12, fontWeight: 600, cursor: "pointer"
-            }}
-          >
-            물성 예측 ↗
-            {isOpeningPrediction ? " (시작 중...)" : ""}
-          </button>
-          <div style={{ width: 1, height: 20, background: "rgba(255,255,255,0.1)", margin: "0 4px" }} />
+          <div style={{ width: 1, height: 20, background: "var(--line)", margin: "0 4px" }} />
         </div>
         <div className="brand-block">
           <div className="brand-mark"><Boxes size={18} /></div>
@@ -1174,7 +1190,7 @@ function App() {
           </div>
         </div>
         <div className="top-actions">
-          <StatusPill icon={Database} label="Python 백엔드" value="연결" tone="ok" />
+          <StatusPill icon={Database} label="Python 백엔드" value={backendOnline ? "연결" : "연결 안 됨"} tone={backendOnline ? "ok" : "default"} />
           <StatusPill icon={WandSparkles} label="예측 모델" value={platformStatus.available ? "사전학습 RF" : "대기"} tone={platformStatus.available ? "ok" : "default"} />
           <StatusPill icon={Cpu} label="사전학습 모델" value={platformStatus.available ? "RF 연동" : "로컬"} tone={platformStatus.available ? "ok" : "default"} />
           <StatusPill icon={Zap} label="예측 신뢰도" value={`${prediction.predictionConfidence}%`} tone="accent" />
@@ -1190,7 +1206,6 @@ function App() {
             <FileText size={14} style={{ flexShrink: 0 }} />
             보고서 생성
           </button>
-          <IconButton title="전체 화면"><Maximize2 size={16} /></IconButton>
         </div>
       </header>
 
@@ -1302,7 +1317,12 @@ function App() {
           </section>
 
           <section className="panel-section">
-            <SectionTitle icon={Thermometer} title="공정 조건" />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <SectionTitle icon={Thermometer} title="공정 조건" />
+              <button className="command" title="공정 조건을 기본값으로" onClick={() => { setProcess(DEFAULT_PROCESS); addLog("공정 조건 초기화"); }}>
+                <RotateCcw size={13} />초기화
+              </button>
+            </div>
             <div style={{ marginBottom: 2 }}>
               <ControlSlider label={`용체화 온도 ${process["Solution_treatment_temperature"]}°C`} min={900} max={1500} value={process["Solution_treatment_temperature"]} onChange={(value) => updateProcess("Solution_treatment_temperature", value)} />
               <p style={{ margin: "2px 0 8px 2px", fontSize: 10, color: "var(--text-muted)", lineHeight: 1.4, fontFamily: "var(--mono)" }}>합금을 균질한 고용체로 만들기 위해 가열하는 온도. 높을수록 합금 원소 용해도↑, 석출물 재용해</p>
@@ -1328,7 +1348,7 @@ function App() {
                   </option>
                 ))}
               </select>
-              <p style={{ margin: "2px 0 8px 2px", fontSize: 10, color: "var(--text-muted)", lineHeight: 1.4 }}>학습 탭에서 만든 커스텀 모델로 시뮬레이션 (Flask :5000 필요)</p>
+              <p style={{ margin: "2px 0 8px 2px", fontSize: 10, color: "var(--text-muted)", lineHeight: 1.4 }}>PyQt 예측 앱에서 학습한 모델로 시뮬레이션 (Flask :5000 필요)</p>
             </div>
             <button className="command primary" style={{ width: "100%", marginTop: 6 }} disabled={isPredicting} onClick={() => predictAlloy()}>
               {isPredicting ? <LoadingSpinner /> : <WandSparkles size={15} />}
@@ -1354,14 +1374,7 @@ function App() {
           </div>
           <div className="viewport-toolbar">
             <span className="toolbar-label">도형</span>
-            {[
-              ["specimen", "시편"],
-              ["sphere", "구"],
-              ["cube", "정육면체"],
-              ["box", "직육면체"]
-            ].map(([id, label]) => (
-              <button key={id} className={shape === id ? "active" : ""} onClick={() => { handleReset(); setShape(id); }}>{label}</button>
-            ))}
+            <button className="active">시편</button>
             <span className="toolbar-sep" />
             <button
               className={interactMode === "orbit" ? "active" : ""}
@@ -1412,10 +1425,26 @@ function App() {
 
             {/* ── Specimen floating data panel ── */}
             {/* STH 컬러맵 레전드 */}
-            <CaeColormapLegend
-              maxVal={simulation?.result.maxStressMpa ?? prediction.strengthMpa}
-              yieldVal={prediction.yieldStressMpa ?? prediction.strengthMpa * 0.70}
-            />
+            {/* 범례와 온도/처짐 박스는 한 스택에 쌓는다 — 따로 절대배치하면 낮은 창에서 겹친다 */}
+            <div className="viewport-left-stack">
+              <CaeColormapLegend
+                maxVal={simulation?.result.maxStressMpa ?? prediction.strengthMpa}
+                yieldVal={prediction.yieldStressMpa ?? prediction.strengthMpa * 0.70}
+              />
+              <div className="holo-label left">
+                {activeTest === "bending" ? (
+                  <>
+                    <span>최대 처짐</span>
+                    <strong>{((deformStats.totalPull ?? 0) * 100).toFixed(1)} mm</strong>
+                  </>
+                ) : (
+                  <>
+                    <span>온도 분포</span>
+                    <strong>{simulation?.result.temperatureC ?? Math.round(prediction.meltingPoint * 0.56)}°C</strong>
+                  </>
+                )}
+              </div>
+            </div>
 
             {/* unit : mm 레이블 */}
             <div className="cae-unit-label">unit : mm</div>
@@ -1428,19 +1457,6 @@ function App() {
               End: {Math.round((simulation?.result.maxStressMpa ?? prediction.strengthMpa) * 0.50)}
             </div>
 
-            <div className="holo-label left">
-              {activeTest === "bending" ? (
-                <>
-                  <span>최대 처짐</span>
-                  <strong>{((deformStats.totalPull ?? 0) * 100).toFixed(1)} mm</strong>
-                </>
-              ) : (
-                <>
-                  <span>온도 분포</span>
-                  <strong>{simulation?.result.temperatureC ?? Math.round(prediction.meltingPoint * 0.56)}°C</strong>
-                </>
-              )}
-            </div>
             <div className="holo-label right">
               {activeTest === "strength" ? (
                 <>
@@ -1513,7 +1529,7 @@ function App() {
           <PanelHeader title="예측 결과" action={
             <div style={{ display: "flex", gap: "6px" }}>
               <button className="command" onClick={handleReset}><RotateCcw size={15} />초기화</button>
-              <button className="command primary" disabled={isSimulating || isPredicting} onClick={() => runSimulation(activeTest)}>
+              <button className="command primary" disabled={isSimulating || isPredicting} onClick={() => runSimulation()}>
                 {isSimulating ? <LoadingSpinner /> : <Play size={15} />}
                 {isSimulating ? "실행 중..." : "시뮬레이션 시작"}
               </button>
@@ -1587,7 +1603,7 @@ function App() {
 
           <section className="analytics-card">
             <SectionTitle icon={BarChart3} title="온도 분석" />
-            <MiniChart values={buildThermalChartValues(prediction, simulation)} color="#FFB020" />
+            <ThermalChart values={buildThermalChartValues(prediction, simulation)} peakC={simulation?.result.temperatureC ?? Math.round(prediction.meltingPoint * 0.56)} color="#E0A000" />
           </section>
           <section className="analytics-card">
             <SectionTitle icon={Activity} title="응력-변형률 그래프" />
@@ -3399,40 +3415,60 @@ function Readout({ label, value }) {
   );
 }
 
-function MiniChart({ values, color }) {
+// 차트 SVG는 폭에 맞춰 늘어나므로(preserveAspectRatio="none") 글자는 SVG 밖 HTML로 그리고
+// 선은 non-scaling-stroke로 두께를 고정한다. SVG 안 <text>는 늘어나서 찌그러지고 잘린다.
+const chartLabel = { position: "absolute", fontSize: 10, fontFamily: "var(--mono)", whiteSpace: "nowrap", lineHeight: 1 };
+
+function ThermalChart({ values, peakC, color }) {
   const points = values.map((value, index) => `${(index / (values.length - 1)) * 100},${100 - value}`).join(" ");
+  const peakIdx = values.indexOf(Math.max(...values));
+  const peakX = (peakIdx / (values.length - 1)) * 100;
   return (
-    <svg className="mini-chart" viewBox="0 0 100 100" preserveAspectRatio="none">
-      <polyline points={points} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" />
-      <polygon points={`0,100 ${points} 100,100`} fill={color} opacity="0.12" />
-    </svg>
+    <div>
+      <div style={{ position: "relative", paddingTop: 14 }}>
+        <span style={{ ...chartLabel, top: 0, left: `${peakX}%`, transform: "translateX(-50%)", color }}>최고 {peakC}°C</span>
+        <svg className="mini-chart" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <polygon points={`0,100 ${points} 100,100`} fill={color} opacity="0.12" />
+          <polyline points={points} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        </svg>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--mono)" }}>
+        <span>가열 시작 22°C</span>
+        <span>시간 →</span>
+      </div>
+    </div>
   );
 }
 
 function StressStrainChart({ points, UTS, yieldStress, elongation }) {
-  const svgPoints = points.map((v, i) => `${(i / (points.length - 1)) * 96 + 2},${96 - v * 0.88}`).join(" ");
-  const yieldIdx = points.findIndex((v, i) => i > 0 && points[i] < points[i - 1]);
+  const svgPoints = points.map((v, i) => `${(i / (points.length - 1)) * 100},${100 - v * 0.9}`).join(" ");
+  // points는 σ/UTS×100. 항복점 = 곡선이 처음 YS에 닿는 곳 (예전엔 넥킹 하강점을 "항복"으로 표시했음)
+  const yieldIdx = points.findIndex((v) => v >= (yieldStress / UTS) * 100 - 0.5);
   const utsIdx = points.indexOf(Math.max(...points));
-  const yieldX = yieldIdx > 0 ? (yieldIdx / (points.length - 1)) * 96 + 2 : null;
-  const utsX = (utsIdx / (points.length - 1)) * 96 + 2;
+  const toX = (idx) => (idx / (points.length - 1)) * 100;
+  const yieldX = yieldIdx > 0 && yieldIdx !== utsIdx ? toX(yieldIdx) : null;
+  const utsX = toX(utsIdx);
+  // 두 라벨이 가까우면 겹치지 않게 반대쪽으로 붙인다
+  const anchor = (x) => (x > 70 ? "translateX(calc(-100% - 3px))" : "translateX(3px)");
   return (
-    <div style={{ position: "relative" }}>
-      <svg className="mini-chart" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ display: "block" }}>
-        <line x1="2" y1="8" x2="2" y2="96" stroke="#d0cdc6" strokeWidth="1" />
-        <line x1="2" y1="96" x2="98" y2="96" stroke="#d0cdc6" strokeWidth="1" />
-        {yieldX && (
-          <line x1={yieldX} y1="10" x2={yieldX} y2="96" stroke="#b45309" strokeWidth="0.8" strokeDasharray="3,2" opacity="0.75" />
+    <div>
+      <div style={{ position: "relative", paddingTop: 28, paddingLeft: 1 }}>
+        <span style={{ ...chartLabel, top: 0, left: `${utsX}%`, transform: anchor(utsX), color: "#c0392b" }}>UTS {UTS.toFixed(0)} MPa</span>
+        {yieldX !== null && (
+          <span style={{ ...chartLabel, top: 13, left: `${yieldX}%`, transform: anchor(yieldX), color: "#b45309" }}>항복 {yieldStress.toFixed(0)} MPa</span>
         )}
-        <line x1={utsX} y1="10" x2={utsX} y2="96" stroke="#c0392b" strokeWidth="0.8" strokeDasharray="3,2" opacity="0.75" />
-        <polyline points={svgPoints} fill="none" stroke="#1a5fa8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-        <polygon points={`2,96 ${svgPoints} 98,96`} fill="#1a5fa8" opacity="0.08" />
-        {yieldX && <text x={yieldX + 1} y="14" fill="#b45309" fontSize="6" opacity="0.9">항복</text>}
-        <text x={utsX + 1} y="14" fill="#c0392b" fontSize="6" opacity="0.9">UTS</text>
-      </svg>
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 10, color: "var(--text-muted)", fontFamily: "'IBM Plex Mono', monospace" }}>
+        <svg className="mini-chart" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ borderLeft: "1px solid var(--line)", borderBottom: "1px solid var(--line)" }}>
+          {yieldX !== null && (
+            <line x1={yieldX} y1="0" x2={yieldX} y2="100" stroke="#b45309" strokeWidth="1" strokeDasharray="3,2" vectorEffect="non-scaling-stroke" />
+          )}
+          <line x1={utsX} y1="0" x2={utsX} y2="100" stroke="#c0392b" strokeWidth="1" strokeDasharray="3,2" vectorEffect="non-scaling-stroke" />
+          <polygon points={`0,100 ${svgPoints} 100,100`} fill="#1a5fa8" opacity="0.08" />
+          <polyline points={svgPoints} fill="none" stroke="#1a5fa8" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        </svg>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--mono)" }}>
         <span>0</span>
-        <span style={{ color: "#b45309" }}>{yieldStress.toFixed(0)} MPa</span>
-        <span style={{ color: "#c0392b" }}>{UTS.toFixed(0)} MPa</span>
+        <span>변형률 (%) →</span>
         <span>{elongation.toFixed(1)}%</span>
       </div>
     </div>
@@ -3467,6 +3503,7 @@ const TEST_META = {
 };
 
 function TestInfoHUD({ activeTest, interactMode, prediction, deformStats }) {
+  if (!activeTest) return null; // 테스트를 고르기 전엔 안내 HUD를 띄우지 않는다
   const meta = TEST_META[activeTest] ?? TEST_META.strength;
   const E = prediction.elasticityGpa ?? 200;
   const UTS = prediction.utsMpa ?? prediction.strengthMpa ?? 800;
