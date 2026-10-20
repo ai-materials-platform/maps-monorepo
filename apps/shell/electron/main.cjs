@@ -477,20 +477,21 @@ async function runSimulation(payload) {
   return lastSimulation;
 }
 
-/* ── OpenAI chatbot ── */
-function callOpenAI(messages) {
+/* ── LLM chatbot (OpenAI 호환 엔드포인트, 미설정 시 OpenAI) ── */
+function callLLM(messages) {
   return new Promise((resolve, reject) => {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return reject(new Error('OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.'));
+    const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY;
+    if (!apiKey) return reject(new Error('LLM_API_KEY(또는 OPENAI_API_KEY)가 설정되지 않았습니다. .env 파일을 확인하세요.'));
+    const base = (process.env.LLM_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+    const url = new URL(`${base}/chat/completions`);
+    const timeoutMs = Number(process.env.LLM_TIMEOUT || 120) * 1000;
     const body = Buffer.from(JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: process.env.LLM_MODEL || 'gpt-4o-mini',
       messages,
       max_tokens: 1024,
       temperature: 0.7
     }));
-    const req = https.request({
-      hostname: 'api.openai.com',
-      path: '/v1/chat/completions',
+    const req = (url.protocol === 'http:' ? http : https).request(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -504,15 +505,15 @@ function callOpenAI(messages) {
       res.on('end', () => {
         try {
           const json = JSON.parse(raw);
-          if (res.statusCode >= 400) return reject(new Error(json.error?.message || `OpenAI HTTP ${res.statusCode}`));
+          if (res.statusCode >= 400) return reject(new Error(json.error?.message || (typeof json.error === 'string' && json.error) || `LLM HTTP ${res.statusCode}`));
           resolve(json.choices[0].message.content);
         } catch (e) {
-          reject(new Error(`OpenAI 응답 파싱 오류: ${e.message}`));
+          reject(new Error(`LLM 응답 파싱 오류: ${e.message}`));
         }
       });
     });
     req.on('error', reject);
-    req.setTimeout(30000, () => req.destroy(new Error('OpenAI 요청 시간 초과 (30초)')));
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`LLM 요청 시간 초과 (${timeoutMs / 1000}초)`)));
     req.write(body);
     req.end();
   });
@@ -531,7 +532,7 @@ ipcMain.handle('chatbot:sendMessage', async (_event, { message, history }) => {
     ...((history || []).slice(-10)),
     { role: 'user', content: message }
   ];
-  const reply = await callOpenAI(messages);
+  const reply = await callLLM(messages);
   return { reply };
 });
 

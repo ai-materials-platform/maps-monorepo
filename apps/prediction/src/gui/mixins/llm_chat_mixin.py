@@ -163,8 +163,28 @@ _SYSTEM_PROMPT = """
 5. 실용적 조언 우선 (설계 개선안, 공정 조정 방향)
 """.strip()
 
-_OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-_OPENAI_MODEL_DEFAULT = "gpt-4o-mini"
+# OpenAI 호환 엔드포인트면 어디든 붙는다. 미설정 시 기존 OpenAI 동작.
+# 모듈 import 시점엔 .env가 아직 안 읽혔을 수 있어 호출 시점에 읽는다.
+def _llm_url() -> str:
+    base = (os.environ.get("LLM_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+    return f"{base}/chat/completions"
+
+
+def _llm_model() -> str:
+    return os.environ.get("LLM_MODEL") or "gpt-4o-mini"
+
+
+def _llm_api_key() -> str:
+    return os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+
+
+def _llm_timeout() -> float:
+    return float(os.environ.get("LLM_TIMEOUT") or 120)
+
+
+def _llm_vision() -> bool:
+    """텍스트 전용 모델이면 LLM_VISION=0 — 그래프 이미지를 빼고 보낸다."""
+    return os.environ.get("LLM_VISION", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
 class _OpenAIWorker(QThread):
@@ -182,7 +202,7 @@ class _OpenAIWorker(QThread):
         try:
             import requests  # noqa: PLC0415
             resp = requests.post(
-                _OPENAI_URL,
+                _llm_url(),
                 headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
                 json={
                     "model": self.model,
@@ -190,12 +210,14 @@ class _OpenAIWorker(QThread):
                     "max_tokens": 1024,
                     "temperature": 0.7,
                 },
-                timeout=60,
+                timeout=_llm_timeout(),
             )
             data = resp.json()
             if resp.status_code != 200 or "error" in data:
                 err = data.get("error", {})
-                self.error_occurred.emit(f"OpenAI 오류 [{err.get('code', resp.status_code)}]: {err.get('message', resp.text)}")
+                if not isinstance(err, dict):  # 업체에 따라 error가 문자열
+                    err = {"message": str(err)}
+                self.error_occurred.emit(f"LLM 오류 [{err.get('code', resp.status_code)}]: {err.get('message', resp.text)}")
                 return
             self.response_received.emit(data["choices"][0]["message"]["content"])
         except Exception as exc:  # noqa: BLE001
@@ -324,10 +346,10 @@ class FloatingChatDialog(QDialog):
 
         # 숨김 위젯
         self._model_edit = QLineEdit()
-        self._model_edit.setText(_OPENAI_MODEL_DEFAULT)
+        self._model_edit.setText(_llm_model())
         self._model_edit.hide()
         self._api_key_edit = QLineEdit()
-        self._api_key_edit.setText(os.environ.get("OPENAI_API_KEY", ""))
+        self._api_key_edit.setText(_llm_api_key())
         self._api_key_edit.hide()
 
 
@@ -349,15 +371,11 @@ class FloatingChatDialog(QDialog):
         self._input.clear()
         self._add_bubble(text, is_user=True)
 
-        api_key = self._api_key_edit.text().strip() or os.environ.get("OPENAI_API_KEY", "")
+        api_key = self._api_key_edit.text().strip() or _llm_api_key()
         if not api_key:
-            self._add_bubble("API 키가 없습니다. .env 파일에 OPENAI_API_KEY를 설정해 주세요.", is_user=False)
+            self._add_bubble("API 키가 없습니다. .env 파일에 LLM_API_KEY(또는 OPENAI_API_KEY)를 설정해 주세요.", is_user=False)
             return
 
-        if not api_key.startswith("sk-") or len(api_key) < 20:
-            self._add_bubble("API 키 형식이 올바르지 않습니다 (sk-... 형식).", is_user=False)
-            self._api_key_edit.clear()
-            return
         self._send_btn.setEnabled(False)
         self._send_btn.setText("…")
 
@@ -369,7 +387,7 @@ class FloatingChatDialog(QDialog):
 
         # 그래프 이미지 캡처 (선택 시)
         graph_images: list[str] = []
-        if self._graph_cb.isChecked() and self._graph_fn:
+        if self._graph_cb.isChecked() and self._graph_fn and _llm_vision():
             graph_images = self._graph_fn()
 
         if graph_images:
@@ -384,7 +402,7 @@ class FloatingChatDialog(QDialog):
         else:
             self._messages.append({"role": "user", "content": text})
 
-        model = self._model_edit.text().strip() or _OPENAI_MODEL_DEFAULT
+        model = self._model_edit.text().strip() or _llm_model()
 
         self._worker = _OpenAIWorker(api_key, model, list(self._messages), system_prompt)
         self._worker.response_received.connect(self._on_response)
