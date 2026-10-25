@@ -1,17 +1,30 @@
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication, QDoubleSpinBox, QLabel
 
-from src.gui.constants import DARK_QSS, LIGHT_QSS
+from src.gui.constants import build_qss
+from src.gui.theme_sync import write_theme
+from src.gui.theme_tokens import token
 
 
 class ThemeMixin:
     def _toggle_theme(self):
-        self._dark_mode = not self._dark_mode
-        self._theme_btn.setText("라이트 모드" if self._dark_mode else "다크 모드")
-        qss = DARK_QSS if self._dark_mode else LIGHT_QSS
+        # 세 앱 공통 theme.json에 쓴다 → 셸·시뮬도 따라온다. 이 창은 바로 적용(감시 콜백은 같은 값이면 무시).
+        theme = "light" if self._dark_mode else "dark"
+        write_theme(theme)
+        self._apply_theme(theme)
+
+    def _apply_theme(self, theme, force=False):
+        """ThemeWatcher.changed(다른 앱이 바꿈)와 시작 시(main.py)에도 불린다."""
+        dark = theme == "dark"
+        if dark == self._dark_mode and not force:
+            return
+        self._dark_mode = dark
+        self._theme_btn.setText("라이트 모드" if dark else "다크 모드")
+        qss = build_qss(dark)
         QApplication.instance().setStyleSheet(qss)
         self.setStyleSheet(qss)
         self._apply_theme_colors()
+        self._custom_titlebar.refresh_theme()
         if hasattr(self, "canvas"):
             if self.last_r2_avg is None:
                 self.render_training_placeholder()
@@ -25,23 +38,24 @@ class ThemeMixin:
 
     def _theme(self):
         d = self._dark_mode
+        t = lambda name: token(name, d)  # noqa: E731 — 공통 디자인 값(maps-theme.css)
         return {
-            "app_bg":      "#1E1E1E" if d else "#F4F6F8",
-            "panel_bg":    "#252526" if d else "#FFFFFF",
-            "muted_bg":    "#2D2D2D" if d else "#F8FAFC",
+            "app_bg":      t("maps-bg"),
+            "panel_bg":    t("maps-panel"),
+            "muted_bg":    t("maps-panel-muted"),
             "info_bg":     "#2D2D2D" if d else "#F6F8FB",
             "divider":     "#3E3E42" if d else "#CBD5E1",
-            "border":      "#3E3E42" if d else "#C9D2DC",
-            "text_primary":"#D4D4D4" if d else "#111827",
-            "text_sec":    "#CCCCCC" if d else "#334155",
-            "text_label":  "#9D9D9D" if d else "#64748B",
-            "tb_bg":       "#1E1E1E" if d else "#FFFFFF",
-            "tb_border":   "#3E3E42" if d else "#C9D2DC",
-            "status_bg":   "#1E1E1E" if d else "#FFFFFF",
-            "status_text": "#D4D4D4" if d else "#111827",
-            "status_muted":"#9D9D9D" if d else "#334155",
+            "border":      t("maps-border"),
+            "text_primary":t("maps-text"),
+            "text_sec":    t("maps-text-secondary"),
+            "text_label":  t("maps-text-muted"),
+            "tb_bg":       t("maps-panel"),
+            "tb_border":   t("maps-border"),
+            "status_bg":   t("maps-panel"),
+            "status_text": t("maps-text"),
+            "status_muted":t("maps-text-secondary"),
             "input_bg":    "#3C3C3C" if d else "#FFFFFF",
-            "accent":      "#1E293B",
+            "accent":      t("maps-accent"),
         }
 
     def _apply_theme_colors(self):
@@ -61,13 +75,13 @@ class ThemeMixin:
             palette.setColor(QPalette.ColorRole.ToolTipBase,     QColor("#252526"))
             palette.setColor(QPalette.ColorRole.ToolTipText,     QColor("#D4D4D4"))
         else:
-            palette.setColor(QPalette.ColorRole.Window,          QColor("#F2F2F0"))
-            palette.setColor(QPalette.ColorRole.WindowText,      QColor("#1A1A1A"))
-            palette.setColor(QPalette.ColorRole.Base,            QColor("#FFFFFF"))
-            palette.setColor(QPalette.ColorRole.AlternateBase,   QColor("#F8F8F7"))
-            palette.setColor(QPalette.ColorRole.Text,            QColor("#1A1A1A"))
-            palette.setColor(QPalette.ColorRole.Button,          QColor("#EBEBEA"))
-            palette.setColor(QPalette.ColorRole.ButtonText,      QColor("#1A1A1A"))
+            palette.setColor(QPalette.ColorRole.Window,          QColor(token("maps-bg", False)))
+            palette.setColor(QPalette.ColorRole.WindowText,      QColor(token("maps-text", False)))
+            palette.setColor(QPalette.ColorRole.Base,            QColor(token("maps-panel", False)))
+            palette.setColor(QPalette.ColorRole.AlternateBase,   QColor(token("maps-panel-muted", False)))
+            palette.setColor(QPalette.ColorRole.Text,            QColor(token("maps-text", False)))
+            palette.setColor(QPalette.ColorRole.Button,          QColor("#EEF2F6"))
+            palette.setColor(QPalette.ColorRole.ButtonText,      QColor(token("maps-text", False)))
             palette.setColor(QPalette.ColorRole.Highlight,       QColor("#1E293B"))
             palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#FFFFFF"))
         QApplication.instance().setPalette(palette)

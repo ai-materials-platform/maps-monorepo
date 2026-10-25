@@ -1,0 +1,55 @@
+{
+  "menus": [
+    {
+      "id": "file",
+      "label": "파일",
+      "items": [
+        { "id": "file.workspace.save", "label": "분석 기록 저장", "shortcut": "Ctrl+S", "apps": ["pyqt"] },
+        { "id": "file.workspace.open", "label": "분석 기록 불러오기", "apps": ["pyqt"] },
+        { "id": "file.report", "label": "보고서 생성", "apps": ["sim"] },
+        { "id": "file.export.csv", "label": "CSV 내보내기", "apps": ["sim"] },
+        { "id": "file.export.json", "label": "JSON 내보내기", "apps": ["sim"] },
+        { "id": "file.state.save", "label": "상태 저장", "apps": ["sim"] },
+        { "id": "file.dashboard.save", "label": "대시보드에 저장", "apps": ["sim"] },
+        { "separator": true },
+        { "id": "file.close", "label": "닫기", "apps": ["pyqt", "sim"] },
+        { "id": "file.quit", "label": "종료", "apps": ["shell"] }
+      ]
+    },
+    {
+      "id": "edit",
+      "label": "편집",
+      "items": [
+        { "id": "edit.undo", "label": "실행 취소", "shortcut": "Ctrl+Z", "apps": ["shell", "pyqt", "sim"] },
+        { "id": "edit.redo", "label": "다시 실행", "shortcut": "Ctrl+Y", "apps": ["shell", "pyqt", "sim"] },
+        { "separator": true },
+        { "id": "edit.cut", "label": "잘라내기", "shortcut": "Ctrl+X", "apps": ["shell", "pyqt", "sim"] },
+        { "id": "edit.copy", "label": "복사", "shortcut": "Ctrl+C", "apps": ["shell", "pyqt", "sim"] },
+        { "id": "edit.paste", "label": "붙여넣기", "shortcut": "Ctrl+V", "apps": ["shell", "pyqt", "sim"] },
+        { "id": "edit.selectAll", "label": "전체 선택", "shortcut": "Ctrl+A", "apps": ["shell", "pyqt", "sim"] }
+      ]
+    },
+    {
+      "id": "view",
+      "label": "보기",
+      "items": [
+        { "id": "view.nav.dashboard", "label": "대시보드", "apps": ["shell", "pyqt", "sim"] },
+        { "id": "view.nav.prediction", "label": "물성 예측", "apps": ["shell", "pyqt", "sim"] },
+        { "id": "view.nav.simulation", "label": "시뮬레이션", "apps": ["shell", "pyqt", "sim"] },
+        { "separator": true },
+        { "id": "view.theme.toggle", "label": "다크모드 전환", "apps": ["shell", "pyqt", "sim"] },
+        { "id": "view.fullscreen", "label": "전체 화면", "shortcut": "F11", "apps": ["shell", "pyqt", "sim"] },
+        { "separator": true },
+        { "id": "view.devtools", "label": "개발자 도구", "apps": ["shell", "sim"], "devOnly": true }
+      ]
+    },
+    {
+      "id": "help",
+      "label": "도움말",
+      "items": [
+        { "id": "help.guide", "label": "사용자 가이드", "apps": ["pyqt"] },
+        { "id": "help.about", "label": "MAPS 정보", "apps": ["shell", "pyqt", "sim"] }
+      ]
+    }
+  ]
+}

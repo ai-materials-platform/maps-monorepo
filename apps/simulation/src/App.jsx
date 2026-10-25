@@ -35,6 +35,8 @@ import * as THREE from "three";
 import { generateStressStrainCurve, vonMisesAtVertex, vonMisesBending, predictPhases, classifyFracture } from "./lib/physics.js";
 import ReportModal from "./components/ReportModal.jsx";
 import LatticeViewer from "./components/LatticeViewer.jsx";
+import { mountTitlebar } from "../../shared/titlebar.js";
+import menuSpec from "../../shared/menus.json";
 
 const DEFAULT_PROCESS = {
   "Solution_treatment_temperature": 1050,
@@ -653,21 +655,54 @@ function App() {
     return () => { cancelled = true; };
   }, []);
 
-  // 메뉴 핸들러는 리스너를 한 번만 걸고 ref로 최신 상태의 함수를 부른다.
-  // (그냥 걸면 첫 렌더 시점의 prediction/composition으로 내보내기가 된다)
+  // 공통 메뉴(apps/shared/menus.json) 중 시뮬 렌더러가 처리하는 항목 — 편집·닫기 등은 main(window-chrome)이 처리.
+  // 대시보드·물성 예측: 셸이 띄운 창이면 셸 main이, 단독 실행이면 시뮬 main이 같은 IPC를 처리한다.
+  // 리스너는 한 번만 걸고 ref로 최신 상태의 함수를 부른다(그냥 걸면 첫 렌더 시점 값으로 내보내기가 된다).
+  const toggleTheme = () =>
+    window.mapsUi?.setTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark");
+  const MENU_HANDLERS = {
+    "file.report": () => openReport(),
+    "file.export.csv": () => exportCSV(),
+    "file.export.json": () => exportJSON(),
+    "file.state.save": () => saveState(),
+    "file.dashboard.save": () => saveToDashboard(),
+    "view.nav.dashboard": () => window.desktopApi?.close(),
+    "view.nav.prediction": () => window.desktopApi?.openPrediction(),
+    "view.nav.simulation": null,
+    "view.theme.toggle": toggleTheme,
+  };
   const menuHandlerRef = useRef(null);
   menuHandlerRef.current = (msg) => {
     const action = msg && msg.action;
-    if (action === "report:open") openReport();
-    else if (action === "data:export-csv") exportCSV();
-    else if (action === "data:export-json") exportJSON();
-    else if (action === "state:save") saveState();
-    else if (action === "dashboard:save") saveToDashboard();
-    else if (action === "state:load") loadSavedResult(msg.payload);
+    if (action === "state:load") loadSavedResult(msg.payload); // 셸 결과 저장소 → '시뮬에서 열기'
+    else MENU_HANDLERS[action]?.();
   };
   useEffect(() => {
     if (!window.desktopApi?.onMenuAction) return undefined;
     return window.desktopApi.onMenuAction((msg) => menuHandlerRef.current?.(msg));
+  }, []);
+
+  // 공통 타이틀바(React 밖 #maps-titlebar)와 theme.json 다크모드 — Electron 밖(브라우저 vite)에선 없음
+  useEffect(() => {
+    const ui = window.mapsUi;
+    if (!ui) return undefined;
+    const applyTheme = (theme) => {
+      if (theme === "dark") document.documentElement.setAttribute("data-theme", "dark");
+      else document.documentElement.removeAttribute("data-theme");
+    };
+    ui.getTheme().then(applyTheme);
+    const offTheme = ui.onTheme(applyTheme);
+    let titlebar = null;
+    let cancelled = false;
+    ui.menuContext().then(({ roleIds, dev }) => {
+      if (cancelled) return;
+      titlebar = mountTitlebar(document.getElementById("maps-titlebar"), {
+        app: "sim", spec: menuSpec, dev, title: "MAPS 시뮬레이션", checkedId: "view.nav.simulation",
+        handled: (id) => !!MENU_HANDLERS[id] || roleIds.includes(id),
+        onAction: (id) => ui.invoke(id),
+      });
+    });
+    return () => { cancelled = true; offTheme(); titlebar?.destroy(); };
   }, []);
 
   const filteredAlloys = alloys.filter((alloy) =>
@@ -1564,11 +1599,11 @@ function App() {
               </div>
               <div style={{
                 marginTop: 6, padding: "6px 8px", borderRadius: 4,
-                background: "#EEF6FF", border: "1px solid #BFDBFE",
+                background: "var(--panel-secondary)", border: "1px solid var(--line)",
                 fontSize: 11, lineHeight: 1.5
               }}>
                 <strong>{phaseInfo.schaeffler?.zone} · {phaseInfo.schaeffler?.zoneKo}</strong>
-                <div style={{ color: "#475569", fontSize: 10, marginTop: 2 }}>
+                <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 2 }}>
                   {phaseInfo.schaeffler?.description}
                 </div>
                 <div style={{ color: "#475569", fontSize: 10, marginTop: 2 }}>

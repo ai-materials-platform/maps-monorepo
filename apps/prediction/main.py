@@ -67,14 +67,15 @@ def _set_taskbar_app_id():
 def main():
     _load_env()
     _set_taskbar_app_id()
-    from src.gui.constants import LIGHT_QSS
+    from src.gui.constants import build_qss
+    from src.gui.theme_sync import read_theme
 
     app = QApplication(sys.argv)
-    app.setStyleSheet(LIGHT_QSS)
+    app.setStyleSheet(build_qss(False))
 
     window = MainWindow()
     _apply_rounded_corners(window)
-    window._apply_theme_colors()
+    window._apply_theme(read_theme(), force=True)  # 세 앱 공통 theme.json
     window.show()
 
     ws_name = os.environ.get("AI_MAPS_WORKSPACE", "").strip()

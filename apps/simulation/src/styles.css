@@ -1,23 +1,30 @@
 :root {
-  --bg: #f4f2ef;
-  --panel: #ffffff;
-  --panel-secondary: #f8f7f5;
-  --accent: #1a5fa8;
-  --accent-cyan: #1a5fa8;
-  --success: #217a3c;
+  /* 색·글꼴·모서리는 apps/shared/maps-theme.css (세 앱 공통). 여기선 기존 이름에 연결만 한다.
+     다크는 maps-theme.css의 :root[data-theme="dark"]가 --maps-*를 바꿔서 따라온다(화면 틀만, 3D 안쪽은 2차). */
+  --bg: var(--maps-bg);
+  --panel: var(--maps-panel);
+  --panel-secondary: var(--maps-panel-muted);
+  --accent: var(--maps-primary);
+  --accent-cyan: var(--maps-primary);
+  --success: var(--maps-success);
   --warning: #b45309;
-  --danger: #c0392b;
-  --text: #1e1e1e;
-  --text-muted: #6b6460;
-  --line: #d0cdc6;
+  --danger: var(--maps-danger);
+  --text: var(--maps-text);
+  --text-muted: var(--maps-text-muted);
+  --line: var(--maps-border);
   --shadow: none;
-  --mono: 'IBM Plex Mono', monospace;
-  --sans: 'IBM Plex Sans', 'Noto Sans KR', sans-serif;
+  --mono: var(--maps-font-mono), monospace;
+  --sans: var(--maps-font-sans), sans-serif;
 }
+
+:root[data-theme="dark"] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 
-html, body, #root { width: 100%; height: 100%; }
+html, body { width: 100%; height: 100%; }
+/* 공통 타이틀바(#maps-titlebar, React 밖) 아래를 #root가 채운다 */
+body { display: flex; flex-direction: column; }
+#root { width: 100%; flex: 1; min-height: 0; }
 
 body {
   margin: 0;
@@ -56,7 +63,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   justify-content: space-between;
   gap: 12px;
   padding: 0 12px;
-  border-radius: 2px;
+  border-radius: var(--maps-radius-lg);
 }
 
 .brand-block {
@@ -74,7 +81,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   color: var(--accent);
   background: rgba(26, 95, 168, 0.07);
   border: 1px solid rgba(26, 95, 168, 0.28);
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
 }
 
 .brand-block strong { display: block; font-size: 13px; font-weight: 600; color: var(--text); }
@@ -92,7 +99,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   color: var(--text-muted);
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
   font-size: 11px;
 }
 .status-pill strong       { color: var(--text);    font-size: 11px; font-family: var(--mono); }
@@ -110,7 +117,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .left-panel, .right-panel, .viewport-panel {
   min-height: 0;
   overflow: hidden;
-  border-radius: 2px;
+  border-radius: var(--maps-radius-lg);
   padding: 10px;
 }
 .left-panel, .right-panel {
@@ -167,7 +174,7 @@ h2 {
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
   cursor: pointer;
   transition: border-color 100ms ease, background 100ms ease, color 100ms ease;
 }
@@ -201,7 +208,7 @@ h2 {
   color: var(--text-muted);
   background: var(--panel-secondary);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
 }
 .search-box input {
   width: 100%;
@@ -227,7 +234,7 @@ h2 {
   color: var(--text);
   background: var(--panel-secondary);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
   outline: 0;
   font-size: 11px;
   font-family: var(--mono);
@@ -244,7 +251,7 @@ h2 {
   color: var(--success);
   background: rgba(33, 122, 60, 0.06);
   border: 1px solid rgba(33, 122, 60, 0.28);
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
   font-size: 11px;
 }
 
@@ -253,7 +260,7 @@ h2 {
 .analytics-card {
   background: var(--panel-secondary);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: var(--maps-radius-lg);
   padding: 9px;
 }
 
@@ -277,7 +284,7 @@ h2 {
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
   cursor: pointer;
 }
 .alloy-item.selected {
@@ -301,7 +308,7 @@ h2 {
   color: var(--text-muted);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
@@ -362,7 +369,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   overflow: hidden;
   background: #2e4260;
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: var(--maps-radius-lg);
 }
 .viewport-stage canvas { width: 100% !important; height: 100% !important; }
 
@@ -374,7 +381,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid #d0cdc6;
   pointer-events: none;
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
 }
 .viewport-left-stack {
   position: absolute;
@@ -419,7 +426,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   border: 1px solid #d0cdc6;
   padding: 6px 8px 5px;
   pointer-events: none;
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
   min-width: 78px;
 }
 .cae-colormap-title {
@@ -458,7 +465,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   background: rgba(255, 255, 255, 0.10);
   border: 1px solid rgba(255, 255, 255, 0.22);
   padding: 3px 7px;
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
   pointer-events: none;
   letter-spacing: 0.3px;
 }
@@ -487,7 +494,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   padding: 9px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
 }
 .metric strong {
   display: block;
@@ -518,7 +525,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   padding: 7px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
 }
 .readout strong {
   display: block;
@@ -539,7 +546,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   grid-template-rows: 30px minmax(0, 1fr);
   gap: 7px;
   padding: 8px;
-  border-radius: 2px;
+  border-radius: var(--maps-radius-lg);
 }
 .timeline-controls { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; }
 .timeline-controls input { max-width: 140px; }
@@ -549,7 +556,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   overflow: hidden;
   background: var(--panel-secondary);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
 }
 .timeline-grid {
   position: absolute;
@@ -567,7 +574,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   font-size: 10px;
   font-family: var(--mono);
   font-weight: 600;
-  border-radius: 2px;
+  border-radius: var(--maps-radius-sm);
   letter-spacing: 0.3px;
   white-space: nowrap;
 }

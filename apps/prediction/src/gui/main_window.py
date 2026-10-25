@@ -97,6 +97,13 @@ class MainWindow(
         _sc = QShortcut(QKeySequence("Ctrl+S"), self)
         _sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
         _sc.activated.connect(self._quick_save_prediction_csv)
+        _fs = QShortcut(QKeySequence("F11"), self)
+        _fs.activated.connect(self._toggle_fullscreen)
+
+        # 셸·시뮬이 다크모드를 바꾸면 theme.json을 보고 따라간다 (시작 테마는 main.py가 적용)
+        from src.gui.theme_sync import ThemeWatcher  # noqa: PLC0415
+        self._theme_watcher = ThemeWatcher(parent=self)
+        self._theme_watcher.changed.connect(self._apply_theme)
 
     # ── 가장자리 리사이즈 (nativeEvent 대신 Qt 네이티브 API 사용) ──────────────
 

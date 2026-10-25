@@ -27,7 +27,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.gui.constants import APP_FONT_SIZE, GLOBAL_QSS
+from src.gui.constants import APP_FONT_SIZE, build_qss
+from src.gui.theme_tokens import load_menu_spec, menus_for
 from src.gui.widgets import CustomTitleBar, FloatingChatbotIcon, MAPSLogoWidget, MplCanvas, PredictionGuideOverlay
 
 
@@ -201,26 +202,52 @@ class UISetupMixin:
     }
 
     def init_ui(self):
-        self.setStyleSheet(GLOBAL_QSS)
+        self.setStyleSheet(build_qss(False))
         self._apply_ui_font()
 
         # 네이티브 메뉴바 숨김 — 커스텀 타이틀바에 통합
         self.menuBar().hide()
 
+        # 공통 메뉴(apps/shared/menus.json) 중 PyQt가 처리하는 항목. None = 표시는 하되 비활성.
+        # 대시보드는 셸이 띄운 PyQt(AI_MAPS_SHELL_EXE)에서만 갈 수 있다. 물성 예측은 현재 창(체크).
+        import os  # noqa: PLC0415
         from PyQt6.QtWidgets import QMenu  # noqa: PLC0415
-        file_menu = QMenu("파일", self)
-        file_menu.addAction("분석 기록 저장", self._save_workspace_from_menu)
-        file_menu.addAction("분석 기록 불러오기", self._open_workspace_dialog)
-        file_menu.addSeparator()
-        file_menu.addAction("프로젝트 닫기", self.close)
-        help_menu = QMenu("도움말", self)
-        help_menu.addAction("사용자 가이드",
-                            lambda: self._show_prediction_guide(self.material_prediction_page))
-        self._custom_menus = (
-            [("파일", file_menu)]
-            + [(n, QMenu(n, self)) for n in ["편집", "보기", "데이터", "분석", "도구"]]
-            + [("도움말", help_menu)]
-        )
+        shell_exe = os.environ.get("AI_MAPS_SHELL_EXE")
+        MENU_HANDLERS = {
+            "file.workspace.save": self._save_workspace_from_menu,
+            "file.workspace.open": self._open_workspace_dialog,
+            "file.close": self.close,
+            "edit.undo": lambda: self._edit_focused("undo"),
+            "edit.redo": lambda: self._edit_focused("redo"),
+            "edit.cut": lambda: self._edit_focused("cut"),
+            "edit.copy": lambda: self._edit_focused("copy"),
+            "edit.paste": lambda: self._edit_focused("paste"),
+            "edit.selectAll": lambda: self._edit_focused("selectAll"),
+            "view.nav.dashboard": (lambda: self._show_shell_dashboard(shell_exe)) if shell_exe else None,
+            "view.nav.prediction": None,
+            "view.nav.simulation": self._open_simulation_app,
+            "view.theme.toggle": self._toggle_theme,
+            "view.fullscreen": self._toggle_fullscreen,
+            "help.guide": lambda: self._show_prediction_guide(self.material_prediction_page),
+            "help.about": self._show_about,
+        }
+        self._custom_menus = []
+        for spec_menu in menus_for(load_menu_spec(), "pyqt", handled=lambda i: MENU_HANDLERS.get(i) is not None):
+            qmenu = QMenu(spec_menu["label"], self)
+            for item in spec_menu["items"]:
+                if item.get("separator"):
+                    qmenu.addSeparator()
+                    continue
+                # 단축키는 글자로만 보인다(\t 뒤) — 실제 키는 입력창 기본 동작·창 단축키가 처리
+                text = item["label"] + (f"\t{item['shortcut']}" if item.get("shortcut") else "")
+                action = qmenu.addAction(text)
+                action.setEnabled(item["enabled"])
+                if item["id"] == "view.nav.prediction":
+                    action.setCheckable(True)
+                    action.setChecked(True)
+                if item["enabled"]:
+                    action.triggered.connect(lambda _checked=False, fn=MENU_HANDLERS[item["id"]]: fn())
+            self._custom_menus.append((spec_menu["label"], qmenu))
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -412,6 +439,30 @@ class UISetupMixin:
         layout.addWidget(self._theme_btn)
         self._update_mode_buttons()
         return bar
+
+    def _edit_focused(self, method):
+        # 메뉴를 눌러도 포커스는 입력칸에 남아 있다(타이틀바 버튼은 포커스를 받지 않음)
+        fn = getattr(QApplication.focusWidget(), method, None)
+        if callable(fn):
+            fn()
+
+    def _toggle_fullscreen(self):
+        self.showNormal() if self.isFullScreen() else self.showFullScreen()
+
+    def _show_about(self):
+        from PyQt6.QtWidgets import QMessageBox  # noqa: PLC0415
+        QMessageBox.about(self, "MAPS", "MAPS — Microstructure & Alloy Prediction System\n물성 예측 + 시뮬레이션 통합 데스크톱 환경")
+
+    def _show_shell_dashboard(self, shell_exe):
+        # 셸 중복 실행 방지(second-instance)가 '--show-dashboard'를 받아 숨겨 둔 대시보드를 앞으로 띄운다
+        import subprocess  # noqa: PLC0415
+        from PyQt6.QtWidgets import QMessageBox  # noqa: PLC0415
+        try:
+            subprocess.Popen([shell_exe, "--show-dashboard"])
+        except Exception as exc:
+            QMessageBox.warning(self, "실행 실패", f"대시보드를 열지 못했습니다:\n{exc}")
+            return
+        self.showMinimized()
 
     def _open_simulation_app(self):
         import subprocess

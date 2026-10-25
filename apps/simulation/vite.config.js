@@ -6,7 +6,9 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: 5173,
-    strictPort: true
+    strictPort: true,
+    // 공통 UI(apps/shared/titlebar.js·menus.json·maps-theme.css)를 루트 밖에서 불러온다
+    fs: { allow: [".", "../shared"] }
   },
   base: "./",
   build: {

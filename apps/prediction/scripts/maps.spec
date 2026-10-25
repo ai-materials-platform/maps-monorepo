@@ -18,6 +18,8 @@ datas = [
     (os.path.join(APP, "src"), "src"),
     (os.path.join(APP, "assets"), "assets"),
     (os.path.join(APP, "models"), "models"),
+    # 세 앱 공통 UI 값(maps-theme.css·menus.json) — theme_tokens.shared_dir()가 _MEIPASS/shared에서 읽는다
+    (os.path.join(APP, "..", "shared"), "shared"),
 ]
 binaries = []
 hiddenimports = [

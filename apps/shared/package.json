@@ -1,0 +1,6 @@
+{
+  "name": "maps-shared",
+  "private": true,
+  "type": "module",
+  "description": "셸·시뮬·PyQt 공통 UI(디자인 값·메뉴·타이틀바). .js는 ESM, .cjs는 Electron main용 CommonJS."
+}
