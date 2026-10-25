@@ -1,0 +1,47 @@
+/*
+ * MAPS 공통 디자인 값 — 셸·시뮬(CSS)과 PyQt(theme_tokens.py)가 같이 읽는다.
+ *
+ * 규칙: 단순한 값만 쓴다 — 색코드, px 숫자, 폰트 이름.
+ *   calc()·var()·그라데이션 같은 CSS 기능은 Qt가 이해하지 못한다.
+ * 다크(:root[data-theme="dark"])에 없는 값은 라이트 값을 그대로 쓴다.
+ * 이름을 바꾸거나 지우면 tools/check_ui_theme.py로 세 앱의 사용처를 확인한다.
+ */
+:root {
+  --maps-bg: #F4F6F8;
+  --maps-panel: #FFFFFF;
+  --maps-panel-muted: #F8FAFC;
+  --maps-border: #C9D2DC;
+  --maps-text: #111827;
+  --maps-text-secondary: #475569;
+  --maps-text-muted: #64748B;
+  --maps-accent: #1E293B;
+  --maps-primary: #1D4ED8;
+  --maps-primary-hover: #2563EB;
+  --maps-success: #58C472;
+  --maps-danger: #C42B1C;
+  --maps-titlebar-bg: #FFFFFF;
+  --maps-titlebar-border: #C9D2DC;
+  --maps-menu-text: #374151;
+  --maps-menu-hover: #F1F5F9;
+  --maps-font-sans: "Malgun Gothic";
+  --maps-font-mono: Consolas;
+  --maps-font-size: 11px;
+  --maps-font-size-title: 15px;
+  --maps-radius-sm: 6px;
+  --maps-radius-lg: 10px;
+  --maps-titlebar-height: 30px;
+}
+
+:root[data-theme="dark"] {
+  --maps-bg: #1E1E1E;
+  --maps-panel: #252526;
+  --maps-panel-muted: #2D2D2D;
+  --maps-border: #3E3E42;
+  --maps-text: #D4D4D4;
+  --maps-text-secondary: #CCCCCC;
+  --maps-text-muted: #9D9D9D;
+  --maps-titlebar-bg: #1E1E1E;
+  --maps-titlebar-border: #3B4350;
+  --maps-menu-text: #D4D4D4;
+  --maps-menu-hover: #2D2D2D;
+}
