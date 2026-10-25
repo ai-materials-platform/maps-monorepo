@@ -45,6 +45,11 @@
         "from": "../simulation/electron",
         "to": "simulation/electron",
         "filter": ["preload.cjs", "shared.cjs"]
+      },
+      {
+        "from": "../shared",
+        "to": "shared",
+        "filter": ["**/*", "!*.test.mjs", "!*-demo.html"]
       }
     ],
     "win": {
