@@ -43,7 +43,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .menu-button span { display: block; width: 22px; height: 2px; border-radius: 999px; background: #667b95; }
 .divider { width: 1px; height: 22px; background: var(--line); }
 h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0; line-height: 1.2; }
-.topbar p { margin: 3px 0 0; color: #6b7a8d; font-size: 13px; font-weight: 500; }
+.topbar p { margin: 3px 0 0; color: var(--maps-text-muted); font-size: 13px; font-weight: 500; }
 .top-actions { display: flex; align-items: center; gap: 10px; }
 
 .icon-btn {
@@ -52,7 +52,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0; line-heigh
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
-  color: #52627a;
+  color: var(--maps-text-secondary);
 }
 .icon-btn:hover { background: var(--maps-menu-hover); }
 .profile-button {
@@ -61,7 +61,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0; line-heigh
   border: 1px solid var(--line);
   border-radius: 50%;
   background: var(--panel);
-  color: #40516a;
+  color: var(--maps-text-secondary);
 }
 .profile-button:hover { background: var(--maps-menu-hover); }
 .profile-button svg { width: 22px; height: 22px; }
@@ -109,7 +109,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0; line-heigh
   border: 0;
   border-radius: 10px;
   background: transparent;
-  color: #5a6a80;
+  color: var(--maps-text-secondary);
 }
 .nav-item:hover:not(.active) { background: var(--maps-menu-hover); }
 .nav-item.active { color: var(--maps-primary-text); background: var(--maps-menu-hover); }
@@ -135,7 +135,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0; line-heigh
 }
 .section-heading { margin-bottom: 22px; }
 .section-heading h2 { margin: 0; font-size: 22px; font-weight: 800; color: var(--text); }
-.section-heading p { margin: 6px 0 0; color: #64748b; font-size: 14px; font-weight: 500; }
+.section-heading p { margin: 6px 0 0; color: var(--maps-text-muted); font-size: 14px; font-weight: 500; }
 
 /* ── Workflow row ── */
 .workflow-row {
@@ -160,16 +160,16 @@ h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0; line-heigh
   display: grid; place-items: center;
   border-radius: 50%;
   background: var(--maps-panel-muted);
-  color: #3a4a5c;
+  color: var(--maps-text-secondary);
   flex-shrink: 0;
 }
 .circle-icon svg { width: 26px; height: 26px; stroke-width: 2.2; }
 .workflow-card h3 { margin: 0; font-size: 18px; font-weight: 800; color: var(--text); }
-.card-copy { margin: 0 0 16px; color: #4a5568; font-size: 14px; line-height: 1.7; font-weight: 500; }
+.card-copy { margin: 0 0 16px; color: var(--maps-text-secondary); font-size: 14px; line-height: 1.7; font-weight: 500; }
 .feature-list {
   margin: 0 0 auto; padding: 0 0 0 4px;
   list-style: none; display: grid; gap: 9px;
-  color: #4a5568; font-size: 13.5px; font-weight: 500;
+  color: var(--maps-text-secondary); font-size: 13.5px; font-weight: 500;
   padding-bottom: 20px;
 }
 .feature-list li { position: relative; padding-left: 18px; }
@@ -568,8 +568,8 @@ h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0; line-heigh
   display: flex; flex-direction: column; align-items: center;
 }
 .splash-logo svg { width: 100px; height: 100px; display: block; }
-.splash-title { margin: 20px 0 0; font-size: 32px; font-weight: 800; letter-spacing: 1px; color: #111827; }
-.splash-subtitle { margin: 7px 0 0; font-size: 12.5px; color: #6b7a8d; font-weight: 500; letter-spacing: 0.3px; }
+.splash-title { margin: 20px 0 0; font-size: 32px; font-weight: 800; letter-spacing: 1px; color: var(--maps-text); }
+.splash-subtitle { margin: 7px 0 0; font-size: 12.5px; color: var(--maps-text-muted); font-weight: 500; letter-spacing: 0.3px; }
 .splash-footer {
   width: 100%; display: flex; align-items: center; justify-content: space-between;
   margin-top: 34px; padding-top: 14px; border-top: 1px solid #eef0f4;
