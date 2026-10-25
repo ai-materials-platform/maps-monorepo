@@ -1,22 +1,18 @@
-# 다크모드 2차 — 시뮬 내부 색 목록
+# 다크모드 2차 — 시뮬 내부 색
 
-1차(2026-10-25, UI 통일 Task 5)는 화면 틀만 `--maps-*`에 연결했다. 아래는 다크에서도 밝게 남는 고정 색이다(목록만, 고치지 않음).
-`grep`으로 뽑은 배경 기준: `#F…`·`#fff`·`white`·`rgba(255,…)`.
+1차(UI 통일, PR #15)는 화면 틀만 `--maps-*`에 연결했다. 2차(2026-10-25)에서 아래를 정리했다.
 
-## 3D 뷰 위 겹침 라벨·컬러맵 (`apps/simulation/src/styles.css`)
-- 381 `.holo-label`, 425 `.cae-colormap`, 465 `.cae-unit-label`
+## 2차에서 바꾼 것
+- 3D 뷰 위 겹침 라벨·범례: `.holo-label`, `.cae-colormap`(제목·값 글자 포함), 오른쪽 아래 응력 범례, 3D 뷰 안내 패널
+  → 시뮬 전용 변수 `--overlay-bg/-border/-rule/-title/-text/-value`(`src/styles.css`), 다크에선 어두운 반투명 바탕 + 밝은 글자, 값은 `#5B8DEF`
+- 합금 이름 대화상자, 원소 추가 펼침 목록 → 패널 공통 색(`--panel`, `--line`, `--text`)
+- 남아 있던 IBM Plex 글꼴 지정(`App.jsx`) → `var(--sans)`·`var(--mono)`
 
-## 3D 뷰·대화상자 인라인 색 (`apps/simulation/src/App.jsx`)
-- 1143, 1167 — 합금 이름 대화상자(흰 카드·회색 버튼)
-- 1383 — URL 입력칸
-- 1527 — 뷰 오른쪽 아래 응력 범례
-- 3581, 3839 — 3D 뷰 겹침 패널(반투명 흰색, `#d0cdc6` 테두리)
+## 그대로 두는 것 (결정)
+- 보고서 창 안쪽: A4 인쇄·PDF용 흰 종이라 다크에서도 흰색. 바깥 어두운 배경만 다크를 따른다. (`ReportModal*.jsx`, `styles.css`의 `@media print` 규칙)
+- 3D 장면 배경·바닥(남색 계열): 라이트·다크 모두에 맞는 고정 색
+- 응력 컬러맵·범례 그라데이션, 그래프 선 색: 값을 뜻하는 색이라 테마와 무관
+- 격자 뷰어(`LatticeViewer.jsx`): 원래부터 어두운 창
 
-## 보고서 모달 (인쇄용 흰 종이 — 다크에서도 흰색 유지가 맞는지 먼저 결정)
-- `src/styles.css` 654 `.report-backdrop`, 665 `.report-modal`
-- `src/components/ReportModal.jsx` 156, 168, 231, 506, 546, 566, 624, 659, 671, 682, 696, 699, 719
-- `src/components/ReportModalDigitalTwin.jsx` 42, 67, 119, 174, 186, 187
-- `src/components/ReportModalKoreanSimple.jsx` 40, 65, 118, 175, 187, 188
-
-## 그 밖
-- 3D 장면 배경·바닥(`#0B1020` 계열), 컬러맵 그라데이션, 차트 선 색은 원래 색 유지가 기본.
+## 남은 다듬기 후보
+- 다크에서 패널 제목 등 파란 글자(`--accent` = `#1D4ED8`)가 어두운 바탕 대비 낮음 — 공통 값에 다크용 강조색을 둘지(스펙 변경) 결정 필요

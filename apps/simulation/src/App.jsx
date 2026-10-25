@@ -1140,12 +1140,12 @@ function App() {
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              background: "#fff", borderRadius: 8, padding: "24px 28px", width: 340,
+              background: "var(--panel)", color: "var(--text)", borderRadius: 8, padding: "24px 28px", width: 340,
               boxShadow: "0 8px 32px rgba(0,0,0,0.28)",
-              fontFamily: "'IBM Plex Sans','Noto Sans KR',sans-serif"
+              fontFamily: "var(--sans)"
             }}
           >
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: "#1a5fa8" }}>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: "var(--accent)" }}>
               새 합금 이름
             </div>
             <input
@@ -1154,7 +1154,7 @@ function App() {
               onChange={e => setNewAlloyName(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") confirmNewAlloy(); if (e.key === "Escape") setNewAlloyDialog(false); }}
               style={{
-                width: "100%", padding: "8px 10px", border: "1px solid #ccc",
+                width: "100%", padding: "8px 10px", border: "1px solid var(--line)", background: "var(--panel)", color: "var(--text)",
                 borderRadius: 4, fontSize: 13, outline: "none", marginBottom: 16,
                 fontFamily: "inherit"
               }}
@@ -1163,8 +1163,8 @@ function App() {
               <button
                 onClick={() => setNewAlloyDialog(false)}
                 style={{
-                  padding: "7px 16px", border: "1px solid #ccc", borderRadius: 4,
-                  background: "#f5f5f5", cursor: "pointer", fontSize: 12
+                  padding: "7px 16px", border: "1px solid var(--line)", borderRadius: 4,
+                  background: "var(--panel-secondary)", color: "var(--text)", cursor: "pointer", fontSize: 12
                 }}
               >취소</button>
               <button
@@ -1524,8 +1524,8 @@ function App() {
               )}
             </div>
             {shape === "specimen" && (
-              <div style={{ position: "absolute", right: 14, bottom: 54, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "7px 9px", background: "rgba(255,255,255,0.92)", border: "1px solid #d0cdc6", borderRadius: 2, pointerEvents: "none" }}>
-                <span style={{ fontSize: 9, fontFamily: "var(--mono)", fontWeight: 600, color: "#4a4744", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3 }}>응력 분포</span>
+              <div style={{ position: "absolute", right: 14, bottom: 54, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "7px 9px", background: "var(--overlay-bg)", border: "1px solid var(--overlay-border)", borderRadius: 2, pointerEvents: "none" }}>
+                <span style={{ fontSize: 9, fontFamily: "var(--mono)", fontWeight: 600, color: "var(--overlay-title)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3 }}>응력 분포</span>
                 <span style={{ fontSize: 9, fontFamily: "var(--mono)", color: "#c0392b", fontWeight: 600 }}>HIGH</span>
                 <div style={{ width: 10, height: 72, background: "linear-gradient(to bottom, #ff0000, #ffff00, #00ff00, #00ccff, #0033ff)", borderRadius: 1 }} />
                 <span style={{ fontSize: 9, fontFamily: "var(--mono)", color: "#1a5fa8", fontWeight: 600 }}>LOW</span>
@@ -3578,15 +3578,15 @@ function TestInfoHUD({ activeTest, interactMode, prediction, deformStats }) {
   return (
     <div style={{
       position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)",
-      background: "rgba(255,255,255,0.93)", border: "1px solid #d0cdc6",
+      background: "var(--overlay-bg)", border: "1px solid var(--overlay-border)",
       borderRadius: 2, padding: "7px 14px", pointerEvents: "none",
       textAlign: "center", minWidth: 300, maxWidth: 500, zIndex: 10
     }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: "#1a5fa8", marginBottom: 2, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.3px" }}>{meta.title}</div>
-      <div style={{ fontSize: 10, color: "#6b6460", marginBottom: loadLine ? 4 : 0, fontFamily: "'IBM Plex Sans', sans-serif" }}>{meta.desc}</div>
-      {loadLine && <div style={{ fontSize: 10, color: "#b45309", fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace" }}>{loadLine}</div>}
+      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--accent)", marginBottom: 2, fontFamily: "var(--mono)", letterSpacing: "0.3px" }}>{meta.title}</div>
+      <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: loadLine ? 4 : 0, fontFamily: "var(--sans)" }}>{meta.desc}</div>
+      {loadLine && <div style={{ fontSize: 10, color: "#b45309", fontWeight: 600, fontFamily: "var(--mono)" }}>{loadLine}</div>}
       {interactMode === "deform" && !loadLine && (
-        <div style={{ fontSize: 10, color: "#6b6460", fontStyle: "italic", fontFamily: "'IBM Plex Sans', sans-serif" }}>{meta.dragHint}</div>
+        <div style={{ fontSize: 10, color: "var(--text-muted)", fontStyle: "italic", fontFamily: "var(--sans)" }}>{meta.dragHint}</div>
       )}
     </div>
   );
@@ -3781,7 +3781,7 @@ function CompareTable({ alloys }) {
     { key: "meltingPoint", label: "용융점 (°C)" },
     { key: "predictionConfidence", label: "신뢰도 (%)" }
   ];
-  const style = { fontSize: 10, borderCollapse: "collapse", width: "100%", fontFamily: "'IBM Plex Mono', monospace" };
+  const style = { fontSize: 10, borderCollapse: "collapse", width: "100%", fontFamily: "var(--mono)" };
   const tdStyle = { padding: "3px 5px", borderBottom: "1px solid #e0ddd8", color: "var(--text-muted)" };
   const thStyle = { ...tdStyle, color: "var(--accent)", fontWeight: 600, textAlign: "right" };
   return (
@@ -3836,7 +3836,7 @@ function ElementPicker({ existingElements, onAdd }) {
       {open && (
         <div style={{
           position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 20,
-          background: "#ffffff", border: "1px solid #d0cdc6", borderRadius: 2,
+          background: "var(--panel)", border: "1px solid var(--line)", borderRadius: "var(--maps-radius-sm)",
           padding: 7, display: "flex", flexWrap: "wrap", gap: 4
         }}>
           {available.map((el) => (
