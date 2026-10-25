@@ -17,7 +17,25 @@
   --sans: var(--maps-font-sans), sans-serif;
 }
 
-:root[data-theme="dark"] { color-scheme: dark; }
+:root {
+  /* 3D 뷰 위에 겹치는 라벨·범례 (다크모드 2차) */
+  --overlay-bg: rgba(255, 255, 255, 0.92);
+  --overlay-border: #d0cdc6;
+  --overlay-rule: #e0ddd8;
+  --overlay-title: #4a4744;
+  --overlay-text: #3a3530;
+  --overlay-value: var(--accent);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --overlay-bg: rgba(37, 37, 38, 0.92);
+  --overlay-border: var(--maps-border);
+  --overlay-rule: var(--maps-border);
+  --overlay-title: var(--maps-text-muted);
+  --overlay-text: var(--maps-text);
+  --overlay-value: #5B8DEF; /* 어두운 바탕에서 읽히는 파랑 (PyQt 다크 강조색) */
+}
 
 * { box-sizing: border-box; }
 
@@ -378,8 +396,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   position: absolute;
   min-width: 110px;
   padding: 6px 9px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid #d0cdc6;
+  background: var(--overlay-bg);
+  border: 1px solid var(--overlay-border);
   pointer-events: none;
   border-radius: var(--maps-radius-sm);
 }
@@ -408,7 +426,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .holo-label strong {
   display: block;
   margin-top: 2px;
-  color: var(--accent);
+  color: var(--overlay-value);
   font-size: 14px;
   font-family: var(--mono);
   font-weight: 600;
@@ -422,8 +440,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   display: flex;
   flex-direction: column;
   gap: 0;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid #d0cdc6;
+  background: var(--overlay-bg);
+  border: 1px solid var(--overlay-border);
   padding: 6px 8px 5px;
   pointer-events: none;
   border-radius: var(--maps-radius-sm);
@@ -433,11 +451,11 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   font-size: 9px;
   font-family: var(--mono);
   font-weight: 600;
-  color: #4a4744;
+  color: var(--overlay-title);
   text-transform: uppercase;
   letter-spacing: 0.6px;
   margin-bottom: 4px;
-  border-bottom: 1px solid #e0ddd8;
+  border-bottom: 1px solid var(--overlay-rule);
   padding-bottom: 3px;
 }
 .cae-colormap-row {
@@ -450,7 +468,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .cae-colormap-val {
   font-size: 9px;
   font-family: var(--mono);
-  color: #3a3530;
+  color: var(--overlay-text);
   white-space: nowrap;
 }
 

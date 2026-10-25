@@ -4,6 +4,7 @@
 """
 import json
 import os
+import time
 from pathlib import Path
 
 from PyQt6.QtCore import QFileSystemWatcher, QObject, QTimer, pyqtSignal
@@ -18,25 +19,47 @@ def theme_file() -> Path:
     return Path(base) / "MAPS" / "theme.json"
 
 
+def _retry(fn):
+    # Windows는 다른 프로세스가 파일을 잡고 있으면 잠깐 PermissionError를 낸다 → 몇 번 다시 시도
+    for attempt in range(21):
+        try:
+            return fn()
+        except PermissionError:
+            if attempt == 20:
+                raise
+            time.sleep(0.01)
+
+
 def write_theme(theme: str, path: Path | None = None) -> None:
+    if theme not in _THEMES:
+        return
     p = Path(path or theme_file())
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({"theme": theme}), encoding="utf-8")
+    _retry(lambda: p.write_text(json.dumps({"theme": theme}), encoding="utf-8"))
 
 
 def read_theme(path: Path | None = None) -> str:
-    """없거나 깨졌거나 값이 이상하면 'light'. 깨진 파일은 올바른 내용으로 다시 쓴다."""
+    """없거나 값이 이상하면 'light'. 깨진 파일은 올바른 내용으로 다시 쓴다.
+
+    다른 앱이 쓰는 도중이면 반쪽 파일이 읽힐 수 있어, 깨졌다고 보기 전에 몇 번 다시 읽는다
+    (apps/shared/theme-sync.cjs와 같은 규칙).
+    """
     p = Path(path or theme_file())
-    try:
-        raw = p.read_text(encoding="utf-8")
-    except OSError:
-        return "light"
-    try:
-        theme = json.loads(raw).get("theme")
-        if theme in _THEMES:
-            return theme
-    except (ValueError, AttributeError):
-        pass
+    for _ in range(5):
+        try:
+            raw = _retry(lambda: p.read_text(encoding="utf-8"))
+        except OSError:
+            return "light"
+        try:
+            theme = json.loads(raw).get("theme")
+        except (ValueError, AttributeError):
+            time.sleep(0.02)
+            continue
+        return theme if theme in _THEMES else _reset_to_light(p)
+    return _reset_to_light(p)
+
+
+def _reset_to_light(p: Path) -> str:
     try:
         write_theme("light", p)
     except OSError:

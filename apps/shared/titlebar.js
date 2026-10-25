@@ -103,6 +103,7 @@ export function mountTitlebar(host, { app, spec, title = '', dev = false, handle
   document.addEventListener('keydown', onKey, true);
   document.addEventListener('mousedown', onDown, true);
   window.addEventListener('blur', close);
+  window.addEventListener('resize', close); // 펼친 메뉴는 버튼 위치에 고정 — 창 크기가 바뀌면 닫는다
   host.replaceChildren(bar);
 
   return {
@@ -113,6 +114,7 @@ export function mountTitlebar(host, { app, spec, title = '', dev = false, handle
       document.removeEventListener('keydown', onKey, true);
       document.removeEventListener('mousedown', onDown, true);
       window.removeEventListener('blur', close);
+      window.removeEventListener('resize', close);
       bar.remove();
     },
   };

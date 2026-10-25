@@ -13,23 +13,48 @@ function themeFile() {
   return path.join(base, "MAPS", "theme.json");
 }
 
-function writeTheme(theme, file = themeFile()) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ theme }), "utf8");
+// Windows는 다른 프로세스가 파일을 잡고 있으면 잠깐 EPERM·EBUSY를 낸다 → 몇 번 다시 시도
+const LOCKED = new Set(["EPERM", "EBUSY", "EACCES"]);
+const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+function retry(fn) {
+  for (let i = 0; ; i += 1) {
+    try {
+      return fn();
+    } catch (e) {
+      if (i >= 20 || !LOCKED.has(e.code)) throw e;
+      pause(10);
+    }
+  }
 }
 
-// 없거나 깨졌거나 값이 이상하면 라이트로 시작한다. 깨진 파일은 올바른 내용으로 다시 쓴다.
+function writeTheme(theme, file = themeFile()) {
+  if (!THEMES.has(theme)) return;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  retry(() => fs.writeFileSync(file, JSON.stringify({ theme }), "utf8"));
+}
+
+// 없거나 값이 이상하면 라이트로 시작한다. 깨진 파일은 올바른 내용으로 다시 쓴다.
+// 다른 앱이 쓰는 도중이면 반쪽 파일이 읽힐 수 있어, 깨졌다고 보기 전에 몇 번 다시 읽는다
+// (안 그러면 남이 'dark'를 쓰는 중에 라이트로 덮어쓴다). 임시 파일+이름 바꾸기는 Windows에서 읽는 쪽이 막아 실패한다.
 function readTheme(file = themeFile()) {
-  let raw;
-  try {
-    raw = fs.readFileSync(file, "utf8");
-  } catch (_) {
-    return "light";
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    let raw;
+    try {
+      raw = retry(() => fs.readFileSync(file, "utf8"));
+    } catch (_) {
+      return "light";
+    }
+    try {
+      const theme = JSON.parse(raw).theme;
+      return THEMES.has(theme) ? theme : resetToLight(file);
+    } catch (_) {
+      pause(20);
+    }
   }
-  try {
-    const theme = JSON.parse(raw).theme;
-    if (THEMES.has(theme)) return theme;
-  } catch (_) {}
+  return resetToLight(file);
+}
+
+function resetToLight(file) {
   try { writeTheme("light", file); } catch (_) {}
   return "light";
 }
