@@ -112,7 +112,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0; line-heigh
   color: #5a6a80;
 }
 .nav-item:hover:not(.active) { background: var(--maps-menu-hover); }
-.nav-item.active { color: var(--blue); background: var(--maps-menu-hover); }
+.nav-item.active { color: var(--maps-primary-text); background: var(--maps-menu-hover); }
 .nav-label { font-size: 11.5px; font-weight: 600; text-align: center; line-height: 1.2; }
 .nav-icon { position: relative; width: 22px; height: 22px; display: inline-block; color: currentColor; }
 .nav-icon::before, .nav-icon::after { content: ""; position: absolute; border: 2px solid currentColor; }
@@ -219,7 +219,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0; line-heigh
 .more-link {
   border: 0;
   background: transparent;
-  color: var(--blue);
+  color: var(--maps-primary-text);
   font-size: 13.5px;
   font-weight: 600;
   padding: 0;

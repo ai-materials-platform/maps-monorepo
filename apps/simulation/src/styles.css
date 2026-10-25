@@ -6,6 +6,7 @@
   --panel-secondary: var(--maps-panel-muted);
   --accent: var(--maps-primary);
   --accent-cyan: var(--maps-primary);
+  --accent-text: var(--maps-primary-text); /* 파란 글자·아이콘 — 버튼 바탕(--accent)과 다크에서 갈림 */
   --success: var(--maps-success);
   --warning: #b45309;
   --danger: var(--maps-danger);
@@ -24,7 +25,7 @@
   --overlay-rule: #e0ddd8;
   --overlay-title: #4a4744;
   --overlay-text: #3a3530;
-  --overlay-value: var(--accent);
+  --overlay-value: var(--accent-text);
 }
 
 :root[data-theme="dark"] {
@@ -34,7 +35,6 @@
   --overlay-rule: var(--maps-border);
   --overlay-title: var(--maps-text-muted);
   --overlay-text: var(--maps-text);
-  --overlay-value: #5B8DEF; /* 어두운 바탕에서 읽히는 파랑 (PyQt 다크 강조색) */
 }
 
 * { box-sizing: border-box; }
@@ -96,7 +96,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   height: 32px;
   display: grid;
   place-items: center;
-  color: var(--accent);
+  color: var(--accent-text);
   background: rgba(26, 95, 168, 0.07);
   border: 1px solid rgba(26, 95, 168, 0.28);
   border-radius: var(--maps-radius-sm);
@@ -122,7 +122,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .status-pill strong       { color: var(--text);    font-size: 11px; font-family: var(--mono); }
 .status-pill.ok strong    { color: var(--success); }
-.status-pill.accent strong { color: var(--accent);  }
+.status-pill.accent strong { color: var(--accent-text);  }
 
 /* ── Workspace ── */
 .workspace {
@@ -167,7 +167,7 @@ h2 {
   align-items: center;
   gap: 6px;
   margin: 0 0 7px;
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -201,7 +201,7 @@ h2 {
 .icon-button:hover,
 .viewport-toolbar button:hover,
 .test-button:hover {
-  color: var(--accent);
+  color: var(--accent-text);
   background: rgba(26, 95, 168, 0.05);
   border-color: rgba(26, 95, 168, 0.35);
 }
@@ -209,7 +209,7 @@ h2 {
 .primary,
 .viewport-toolbar button.active,
 .test-button.selected {
-  color: var(--accent);
+  color: var(--accent-text);
   background: rgba(26, 95, 168, 0.07);
   border-color: var(--accent);
 }
@@ -556,7 +556,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 /* ── Simulation log ── */
 .logs { flex: 1; min-height: 130px; overflow: auto; }
 .logs p { margin: 5px 0 0; color: var(--text-muted); font-size: 10px; font-family: var(--mono); line-height: 1.5; }
-.logs p:first-child { color: var(--accent); }
+.logs p:first-child { color: var(--accent-text); }
 
 /* ── Timeline ── */
 .timeline-panel {

@@ -1145,7 +1145,7 @@ function App() {
               fontFamily: "var(--sans)"
             }}
           >
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: "var(--accent)" }}>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: "var(--accent-text)" }}>
               새 합금 이름
             </div>
             <input
@@ -1171,7 +1171,7 @@ function App() {
                 onClick={confirmNewAlloy}
                 style={{
                   padding: "7px 16px", border: "none", borderRadius: 4,
-                  background: "#1a5fa8", color: "#fff", cursor: "pointer",
+                  background: "var(--accent)", color: "#fff", cursor: "pointer",
                   fontSize: 12, fontWeight: 700
                 }}
               >추가</button>
@@ -1315,7 +1315,7 @@ function App() {
             </button>
             <p style={{ margin: "0 0 6px", fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5, fontFamily: "var(--mono)" }}>
               파일을 올리면 합금 목록에 자동 추가됩니다.<br />
-              <span style={{ color: "var(--accent)" }}>원소 컬럼</span> (Fe, Ni, Cr …) + <span style={{ color: "var(--accent)" }}>물성 컬럼</span> (UTS, YieldStrength, Elongation …)<br />
+              <span style={{ color: "var(--accent-text)" }}>원소 컬럼</span> (Fe, Ni, Cr …) + <span style={{ color: "var(--accent-text)" }}>물성 컬럼</span> (UTS, YieldStrength, Elongation …)<br />
               Excel 여러 행 → 행마다 별도 합금으로 추가
             </p>
             <div className="url-import-row">
@@ -1528,7 +1528,7 @@ function App() {
                 <span style={{ fontSize: 9, fontFamily: "var(--mono)", fontWeight: 600, color: "var(--overlay-title)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3 }}>응력 분포</span>
                 <span style={{ fontSize: 9, fontFamily: "var(--mono)", color: "#c0392b", fontWeight: 600 }}>HIGH</span>
                 <div style={{ width: 10, height: 72, background: "linear-gradient(to bottom, #ff0000, #ffff00, #00ff00, #00ccff, #0033ff)", borderRadius: 1 }} />
-                <span style={{ fontSize: 9, fontFamily: "var(--mono)", color: "#1a5fa8", fontWeight: 600 }}>LOW</span>
+                <span style={{ fontSize: 9, fontFamily: "var(--mono)", color: "var(--accent-text)", fontWeight: 600 }}>LOW</span>
               </div>
             )}
           </div>
@@ -1556,10 +1556,10 @@ function App() {
                 onChange={setTestTemp}
               />
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 10px", margin: "6px 0 4px", fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--mono)" }}>
-                <span><span style={{ color: "var(--accent)" }}>색상 스케일</span>: 파랑→노랑→빨강 = 저온→중온→고온</span>
-                <span><span style={{ color: "var(--accent)" }}>팽창률</span>: 온도 상승 시 체적 균일 팽창 (열팽창계수 적용)</span>
-                <span><span style={{ color: "var(--accent)" }}>용융점 기준</span>: 예측 Tm({Math.round(prediction.meltingPoint)}°C) 이전까지 고체 상태</span>
-                <span><span style={{ color: "var(--accent)" }}>테스트 기준</span>: ASTM E21 고온 인장 표준 온도 범위</span>
+                <span><span style={{ color: "var(--accent-text)" }}>색상 스케일</span>: 파랑→노랑→빨강 = 저온→중온→고온</span>
+                <span><span style={{ color: "var(--accent-text)" }}>팽창률</span>: 온도 상승 시 체적 균일 팽창 (열팽창계수 적용)</span>
+                <span><span style={{ color: "var(--accent-text)" }}>용융점 기준</span>: 예측 Tm({Math.round(prediction.meltingPoint)}°C) 이전까지 고체 상태</span>
+                <span><span style={{ color: "var(--accent-text)" }}>테스트 기준</span>: ASTM E21 고온 인장 표준 온도 범위</span>
               </div>
             </div>
           )}
@@ -3582,7 +3582,7 @@ function TestInfoHUD({ activeTest, interactMode, prediction, deformStats }) {
       borderRadius: 2, padding: "7px 14px", pointerEvents: "none",
       textAlign: "center", minWidth: 300, maxWidth: 500, zIndex: 10
     }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--accent)", marginBottom: 2, fontFamily: "var(--mono)", letterSpacing: "0.3px" }}>{meta.title}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--accent-text)", marginBottom: 2, fontFamily: "var(--mono)", letterSpacing: "0.3px" }}>{meta.title}</div>
       <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: loadLine ? 4 : 0, fontFamily: "var(--sans)" }}>{meta.desc}</div>
       {loadLine && <div style={{ fontSize: 10, color: "#b45309", fontWeight: 600, fontFamily: "var(--mono)" }}>{loadLine}</div>}
       {interactMode === "deform" && !loadLine && (
@@ -3783,7 +3783,7 @@ function CompareTable({ alloys }) {
   ];
   const style = { fontSize: 10, borderCollapse: "collapse", width: "100%", fontFamily: "var(--mono)" };
   const tdStyle = { padding: "3px 5px", borderBottom: "1px solid #e0ddd8", color: "var(--text-muted)" };
-  const thStyle = { ...tdStyle, color: "var(--accent)", fontWeight: 600, textAlign: "right" };
+  const thStyle = { ...tdStyle, color: "var(--accent-text)", fontWeight: 600, textAlign: "right" };
   return (
     <div style={{ overflowX: "auto" }}>
       <table style={style}>

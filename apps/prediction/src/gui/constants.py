@@ -51,7 +51,7 @@ QTabBar {{ background: {bg}; }}
 QTabBar::scroller {{ background: {bg}; }}
 QTabBar QToolButton {{ background: {bg}; border: none; }}
 QTabBar::tab {{ background: {bg}; color: {text_muted}; padding: 8px 16px; border: 1px solid {border}; border-bottom: none; border-top-left-radius: 3px; border-top-right-radius: 3px; }}
-QTabBar::tab:selected {{ background: {panel}; color: #FFFFFF; font-weight: 700; border-bottom: 2px solid #5B8DEF; }}
+QTabBar::tab:selected {{ background: {panel}; color: #FFFFFF; font-weight: 700; border-bottom: 2px solid {primary_text}; }}
 QTabBar::tab:hover {{ background: {panel_muted}; color: {text}; }}
 QGroupBox {{ border: 1px solid {border}; border-radius: 3px; margin-top: 16px; padding-top: 14px; font-weight: 700; color: {text}; background: {panel}; }}
 QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 6px; color: {text_muted}; font-size: 11px; letter-spacing: 0.2px; }}
@@ -59,7 +59,7 @@ QPushButton {{ background-color: {panel_muted}; color: {text}; border: 1px solid
 QPushButton:hover {{ background-color: #3A3A3A; color: #FFFFFF; border-color: #5A5A5A; }}
 QPushButton:disabled {{ color: #5A5A5A; background: {bg}; border-color: {border}; }}
 QComboBox {{ border: 1px solid {border}; border-radius: 3px; background: {panel}; padding: 5px 10px; color: {text}; }}
-QComboBox:focus {{ border-color: #5B8DEF; }}
+QComboBox:focus {{ border-color: {primary_text}; }}
 QComboBox QAbstractItemView {{ background: {panel}; border: 1px solid {border}; color: {text}; selection-background-color: {panel_muted}; selection-color: #FFFFFF; }}
 QTableWidget {{ border: 1px solid {border}; gridline-color: {panel_muted}; background: {panel}; alternate-background-color: {bg}; color: {text}; }}
 QTableWidget::item {{ background-color: {panel}; color: {text}; }}
@@ -73,7 +73,7 @@ QScrollBar:horizontal {{ height: 7px; background: transparent; }}
 QScrollBar::handle:horizontal {{ background: #5A5A5A; border-radius: 3px; }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 QLineEdit {{ border: 1px solid {border}; border-radius: 3px; background: #3C3C3C; padding: 5px 10px; color: {text}; selection-background-color: #3A4A6B; }}
-QLineEdit:focus {{ border-color: #5B8DEF; }}
+QLineEdit:focus {{ border-color: {primary_text}; }}
 QDoubleSpinBox, QSpinBox {{ border: 1px solid {border}; border-radius: 3px; background: #3C3C3C; padding: 5px 10px; color: {text}; }}
 QSplitter::handle {{ background: {border}; }}
 QDialog {{ background: {panel}; color: {text}; }}
@@ -87,7 +87,7 @@ QMenu::item:disabled {{ color: {text_muted}; }}
 QMenu::separator {{ height: 1px; background: {border}; margin: 4px 0; }}
 """
 
-_TOKEN_KEYS = ("bg", "panel", "panel-muted", "border", "text", "text-secondary", "text-muted", "accent", "menu-hover")
+_TOKEN_KEYS = ("bg", "panel", "panel-muted", "border", "text", "text-secondary", "text-muted", "accent", "menu-hover", "primary-text")
 
 
 def build_qss(dark: bool) -> str:

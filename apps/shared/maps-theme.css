@@ -17,6 +17,7 @@
   --maps-accent: #1E293B;
   --maps-primary: #1D4ED8;
   --maps-primary-hover: #2563EB;
+  --maps-primary-text: #1D4ED8; /* 파란 글자·아이콘. 버튼 바탕은 --maps-primary (다크에서 둘이 갈림) */
   --maps-success: #58C472;
   --maps-danger: #C42B1C;
   --maps-titlebar-bg: #FFFFFF;
@@ -33,6 +34,7 @@
 }
 
 :root[data-theme="dark"] {
+  --maps-primary-text: #4DAAFC; /* 어두운 바탕에서 읽히는 파랑(VS Code 링크색). 버튼 바탕은 그대로 #1D4ED8 */
   --maps-bg: #1E1E1E;
   --maps-panel: #252526;
   --maps-panel-muted: #2D2D2D;
