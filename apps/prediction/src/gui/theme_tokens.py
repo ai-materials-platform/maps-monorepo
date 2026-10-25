@@ -39,3 +39,30 @@ def token(name: str, dark: bool) -> str:
         return _MISSING
     return value
 
+
+
+def load_menu_spec(path: Path | None = None) -> dict:
+    """세 앱 공통 메뉴 정의(apps/shared/menus.json)."""
+    import json
+
+    return json.loads(Path(path or shared_dir() / "menus.json").read_text(encoding="utf-8"))
+
+
+def menus_for(spec: dict, app: str = "pyqt", handled=lambda _id: True) -> list[dict]:
+    """apps/shared/menu-model.js의 menusFor와 같은 규칙: 다른 앱·devOnly 제거, 구분선 정리, 빈 메뉴 제거."""
+    result = []
+    for menu in spec["menus"]:
+        items: list[dict] = []
+        for item in menu["items"]:
+            if item.get("separator"):
+                if items and not items[-1].get("separator"):
+                    items.append({"separator": True})
+                continue
+            if app not in item["apps"] or item.get("devOnly"):
+                continue
+            items.append({**item, "enabled": bool(handled(item["id"]))})
+        while items and items[-1].get("separator"):
+            items.pop()
+        if items:
+            result.append({"id": menu["id"], "label": menu["label"], "items": items})
+    return result
