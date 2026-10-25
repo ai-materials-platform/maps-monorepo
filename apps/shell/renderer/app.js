@@ -596,35 +596,36 @@ function bindEvents() {
     document.querySelector('.app-shell').classList.toggle('sidebar-collapsed');
   });
 
-  // Dark mode (persisted)
+  // 다크모드: 세 앱이 %APPDATA%\MAPS\theme.json을 함께 쓴다 (main이 변경을 'theme-changed'로 알림)
   const applyTheme = (theme) => {
     if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
     else document.documentElement.removeAttribute('data-theme');
-    try { localStorage.setItem('maps-theme', theme); } catch (_) {}
   };
-  try {
-    if ((localStorage.getItem('maps-theme') || 'light') === 'dark') applyTheme('dark');
-  } catch (_) {}
-  document.getElementById('darkModeBtn').addEventListener('click', () => {
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    applyTheme(isDark ? 'light' : 'dark');
-  });
+  const toggleTheme = () =>
+    window.mapsUi.setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  window.mapsUi.getTheme().then(applyTheme);
+  window.mapsUi.onTheme(applyTheme);
+  document.getElementById('darkModeBtn').addEventListener('click', toggleTheme);
 
-  // Native menu actions (main process menu bar)
-  if (window.integrationApi?.onMenuAction) {
-    window.integrationApi.onMenuAction((msg) => {
-      const action = msg && msg.action;
-      if (!action) return;
-      if (action.startsWith('nav:')) {
-        const target = action.slice(4);
-        // 예측은 PyQt 데스크톱 앱으로 실행
-        if (target === 'prediction') { openPredictionPlatform(); return; }
-        switchPage(target);
-      } else if (action === 'sim:start') {
-        openSimulationPlatform();
-      }
+  // 공통 메뉴(apps/shared/menus.json) 중 셸 렌더러가 처리하는 항목 — 편집·전체 화면 등은 main(window-chrome)이 처리
+  const MENU_HANDLERS = {
+    'view.nav.dashboard': () => switchPage('home'),
+    'view.nav.prediction': () => openPredictionPlatform(),
+    'view.nav.simulation': () => openSimulationPlatform(),
+    'view.theme.toggle': toggleTheme,
+  };
+  window.mapsUi.onAction((id) => MENU_HANDLERS[id]?.());
+  Promise.all([
+    import('maps-shared://shared/titlebar.js'),
+    fetch('maps-shared://shared/menus.json').then((r) => r.json()),
+    window.mapsUi.menuContext(),
+  ]).then(([{ mountTitlebar }, spec, { roleIds, dev }]) => {
+    mountTitlebar(document.getElementById('maps-titlebar'), {
+      app: 'shell', spec, dev, title: 'MAPS', checkedId: 'view.nav.dashboard',
+      handled: (id) => id in MENU_HANDLERS || roleIds.includes(id),
+      onAction: (id) => window.mapsUi.invoke(id),
     });
-  }
+  }).catch((err) => console.error('titlebar mount failed', err));
 
   // Nav page switching (예측은 PyQt 데스크톱 앱으로 실행)
   document.querySelectorAll('.nav-item[data-page]').forEach(btn => {

@@ -35,6 +35,7 @@ export function mountTitlebar(host, { app, spec, title = '', dev = false, handle
   const buttons = menus.map((menu, i) => {
     const b = el('button', 'maps-menu-btn', menu.label);
     b.type = 'button';
+    b.addEventListener('mousedown', (e) => e.preventDefault()); // 포커스를 뺏지 않아야 복사·붙여넣기가 입력창에 간다
     b.addEventListener('click', () => (openIndex === i ? close() : open(i)));
     b.addEventListener('mouseenter', () => { if (openIndex !== -1 && openIndex !== i) open(i); });
     menubar.append(b);
@@ -58,6 +59,7 @@ export function mountTitlebar(host, { app, spec, title = '', dev = false, handle
     buttons[i].classList.add('is-open');
     pop = el('div', 'maps-menu-pop');
     pop.setAttribute('role', 'menu');
+    pop.addEventListener('mousedown', (e) => e.preventDefault());
     menus[i].items.forEach((item, idx) => {
       if (item.separator) { pop.append(el('div', 'maps-menu-sep')); return; }
       const row = el('div', 'maps-menu-item' + (item.enabled ? '' : ' is-disabled'));

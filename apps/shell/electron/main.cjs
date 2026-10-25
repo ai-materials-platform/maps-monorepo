@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const fsp = fs.promises;
@@ -9,6 +9,11 @@ const path = require('path');
 
 const rootDir = path.resolve(__dirname, '..');
 const monorepoRootDir = path.resolve(rootDir, '..', '..');
+// 세 앱 공통 UI(apps/shared): 설치본은 extraResources로 resources/shared에 복사된다
+const sharedDir = app.isPackaged ? path.join(process.resourcesPath, 'shared') : path.join(monorepoRootDir, 'apps', 'shared');
+const chrome = require(path.join(sharedDir, 'window-chrome.cjs'));
+const { readTheme } = require(path.join(sharedDir, 'theme-sync.cjs'));
+chrome.registerSharedScheme();
 
 // 셸은 WebGL을 쓰지 않으므로 GPU를 끈다.
 // 이 머신에서 GPU 프로세스 크래시가 앱 종료로 번지는 것을 방지.
@@ -913,63 +918,9 @@ ipcMain.handle('integration:stopServices', async () => {
   return { stopped: true };
 });
 
-function setupAppMenu() {
-  // stock 영문 메뉴 대신 한글 실기능 메뉴 (PyQt 메뉴바와 통일).
-  // action 항목은 렌더러로 전달해서 실제 기능에 연결한다.
-  const send = (action, payload) => {
-    const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
-    const target = mainWindow && !mainWindow.isDestroyed() ? mainWindow : wins[0];
-    if (target) target.webContents.send('menu-action', { action, payload });
-  };
-  const template = [
-    { label: '파일', submenu: [
-      { label: '물성 예측 열기', click: () => send('nav:prediction') },
-      { label: '시뮬레이션 시작', click: () => send('sim:start') },
-      { type: 'separator' },
-      { label: '종료', click: () => app.quit() },
-    ]},
-    { label: '편집', submenu: [
-      { label: '실행 취소', role: 'undo' },
-      { label: '다시 실행', role: 'redo' },
-      { type: 'separator' },
-      { label: '잘라내기', role: 'cut' },
-      { label: '복사', role: 'copy' },
-      { label: '붙여넣기', role: 'paste' },
-      { label: '전체 선택', role: 'selectAll' },
-    ]},
-    { label: '보기', submenu: [
-      { label: '홈으로', click: () => send('nav:home') },
-      { label: '결과 저장소', click: () => send('nav:results') },
-      { type: 'separator' },
-      { label: '새로고침', click: (_m, w) => { if (w && !w.isDestroyed()) w.reload(); } },
-      { label: '전체 화면 전환', click: (_m, w) => { if (w && !w.isDestroyed()) w.setFullScreen(!w.isFullScreen()); } },
-      ...(app.isPackaged ? [] : [{ label: '개발자 도구', click: (_m, w) => { if (w && !w.isDestroyed()) w.webContents.toggleDevTools(); } }]),
-    ]},
-    { label: '도움말', submenu: [
-      { label: 'MAPS 정보', click: () => {
-        dialog.showMessageBox({
-          type: 'info',
-          title: 'MAPS',
-          message: 'MAPS — Microstructure & Alloy Prediction System',
-          detail: '물성 예측 + 시뮬레이션 통합 데스크톱 환경\n' +
-                  `Electron ${process.versions.electron} / Chrome ${process.versions.chrome}`,
-        });
-      }},
-    ]},
-  ];
-  if (!app.isPackaged) {
-    template.push({ label: '개발', submenu: [
-      { role: 'reload' },
-      { role: 'forceReload' },
-      { role: 'toggleDevTools' },
-      { type: 'separator' },
-      { role: 'quit' },
-    ]});
-  }
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
-function createWindow() {  mainWindow = new BrowserWindow({
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    ...chrome.chromeOptions(readTheme()),
     width: 1540,
     height: 980,
     minWidth: 1180,
@@ -983,6 +934,9 @@ function createWindow() {  mainWindow = new BrowserWindow({
       nodeIntegration: false
     }
   });
+  const win = mainWindow;
+  chrome.installHiddenMenu(win, 'shell', (id) => win.webContents.send('menu-action', { action: id }))
+    .catch((err) => logService('menu', `install failed: ${err.message}`));
   mainWindow.loadFile(path.join(rootDir, 'renderer', 'index.html'));
 }
 
@@ -990,7 +944,9 @@ app.whenReady().then(async () => {
   // 두 번째 실행(락 실패)은 app.quit()만 하고 끝나야 한다 — 이 핸들러가 락 확인보다 먼저 등록돼 있어
   // 그냥 두면 창·백엔드를 또 띄우고(--open-simulation이면 시뮬 백엔드까지) 고아 프로세스를 남긴다.
   if (!gotSingleLock) return;
-  setupAppMenu();
+  chrome.registerSharedProtocol(sharedDir);
+  chrome.registerMenuIpc();
+  chrome.registerThemeSync();
   if (app.isPackaged) projectsDir = path.join(app.getPath('userData'), 'projects');
   await fsp.mkdir(projectsDir, { recursive: true });
   createWindow();
@@ -1010,6 +966,11 @@ if (!gotSingleLock) {
     // PyQt '시뮬레이션' 버튼(패키징): MAPS.exe --open-simulation → 떠 있는 셸이 시뮬 창을 연다
     if (argv.includes('--open-simulation')) {
       openSimulationWindow().catch((err) => logService('simulation', `open failed: ${err.message}`));
+      return;
+    }
+    // PyQt·시뮬 메뉴 '보기 > 대시보드': MAPS.exe --show-dashboard → 숨겨 둔 대시보드를 앞으로(시뮬 창은 그대로)
+    if (argv.includes('--show-dashboard') && mainWindow && !mainWindow.isDestroyed()) {
+      bringToFront(mainWindow);
       return;
     }
     const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
