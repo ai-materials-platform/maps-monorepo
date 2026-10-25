@@ -1,56 +1,11 @@
 "use strict";
 // 시뮬 창 공용 로직 — 시뮬 단독 실행(main.cjs)과 셸이 띄운 시뮬 창이 같이 쓴다.
 // 둘이 따로 구현하면 한쪽만 고쳐지고 다른 쪽이 조용히 깨진다.
-const { app, BrowserWindow, dialog, Menu } = require("electron");
+const { app, BrowserWindow, dialog } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 
 const BACKEND_URL = "http://127.0.0.1:8765";
-
-// 시뮬 창 전용 한글 메뉴. action은 그 창의 렌더러로 보낸다.
-function buildSimMenu(win) {
-  const send = (action, payload) => {
-    if (win && !win.isDestroyed()) win.webContents.send("menu-action", { action, payload });
-  };
-  const template = [
-    { label: "파일", submenu: [
-      { label: "보고서 생성", click: () => send("report:open") },
-      { label: "CSV 내보내기", click: () => send("data:export-csv") },
-      { label: "JSON 내보내기", click: () => send("data:export-json") },
-      { type: "separator" },
-      { label: "상태 저장", click: () => send("state:save") },
-      { label: "대시보드에 저장", click: () => send("dashboard:save") },
-      { type: "separator" },
-      { label: "닫기", click: () => { if (win && !win.isDestroyed()) win.close(); } },
-    ]},
-    { label: "편집", submenu: [
-      { label: "실행 취소", role: "undo" },
-      { label: "다시 실행", role: "redo" },
-      { type: "separator" },
-      { label: "잘라내기", role: "cut" },
-      { label: "복사", role: "copy" },
-      { label: "붙여넣기", role: "paste" },
-      { label: "전체 선택", role: "selectAll" },
-    ]},
-    { label: "보기", submenu: [
-      { label: "새로고침", click: () => { if (win && !win.isDestroyed()) win.reload(); } },
-      { label: "전체 화면 전환", click: () => { if (win && !win.isDestroyed()) win.setFullScreen(!win.isFullScreen()); } },
-      ...(app.isPackaged ? [] : [{ label: "개발자 도구", click: () => { if (win && !win.isDestroyed()) win.webContents.toggleDevTools(); } }]),
-    ]},
-    { label: "도움말", submenu: [
-      { label: "MAPS 시뮬레이션 정보", click: () => {
-        dialog.showMessageBox(win, {
-          type: "info",
-          title: "MAPS 시뮬레이션",
-          message: "MAPS 시뮬레이션",
-          detail: "조성 기반 물성 예측 및 인장 시험 3D 시뮬레이션\n" +
-                  `Electron ${process.versions.electron} / Chrome ${process.versions.chrome}`,
-        });
-      }},
-    ]},
-  ];
-  return Menu.buildFromTemplate(template);
-}
 
 function saveToWorkspace(workspacesRoot, { alloyName, prediction, simulation, composition, process: proc }) {
   const now = new Date();
@@ -148,7 +103,6 @@ async function savePdf(win, { contentHtml = "" } = {}) {
 module.exports = {
   BACKEND_URL,
   PRELOAD_PATH: path.join(__dirname, "preload.cjs"),
-  buildSimMenu,
   saveToWorkspace,
   savePdf,
 };

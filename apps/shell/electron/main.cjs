@@ -609,7 +609,10 @@ ipcMain.handle('integration:openProjectFolder', async (_event, id) => {
   return shell.openPath(target);
 });
 
-ipcMain.handle('integration:startPredictionApp', async (_event, workspace) => {
+// 시뮬 창 메뉴 '보기 > 물성 예측'(desktopApi.openPrediction) — 시뮬 단독 실행의 같은 이름 IPC와 짝
+ipcMain.handle('prediction:open', async () => startPredictionApp());
+ipcMain.handle('integration:startPredictionApp', async (_event, workspace) => startPredictionApp(workspace));
+async function startPredictionApp(workspace) {
   if (app.isPackaged) {
     const bundledExe = path.join(process.resourcesPath, 'main_app', 'main_app.exe');
     if (!fs.existsSync(bundledExe)) throw new Error(`Bundled prediction app not found: ${bundledExe}`);
@@ -655,7 +658,7 @@ ipcMain.handle('integration:startPredictionApp', async (_event, workspace) => {
   }
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
   return { started: true, path: predictionRepoDir };
-});
+}
 
 ipcMain.handle('integration:startSimulationApp', async () => openSimulationWindow());
 
@@ -700,14 +703,16 @@ async function openSimulationWindow() {
   // Open simulation in a new BrowserWindow (reuses MAPS Electron — no separate electron binary needed)
   if (!simulationWindow || simulationWindow.isDestroyed()) {
     simulationWindow = new BrowserWindow({
+      ...chrome.chromeOptions(readTheme()),
       width: 1600, height: 980, minWidth: 1200, minHeight: 760,
       backgroundColor: '#0B1020',
       title: 'MAPS',
       icon: path.join(__dirname, '..', 'assets', 'icon.png'),
       webPreferences: { preload: simShared().PRELOAD_PATH, contextIsolation: true, nodeIntegration: false }
     });
-    // 셸 메뉴는 숨겨진 대시보드로 신호를 보내므로 시뮬 창엔 시뮬 전용 메뉴를 붙인다.
-    simulationWindow.setMenu(simShared().buildSimMenu(simulationWindow));
+    const simWin = simulationWindow;
+    chrome.installHiddenMenu(simWin, 'sim', (id) => simWin.webContents.send('menu-action', { action: id }))
+      .catch((err) => logService('menu', `install failed: ${err.message}`));
     if (app.isPackaged) simulationWindow.loadFile(path.join(simulationRepoDir, 'dist', 'index.html'));
     else simulationWindow.loadURL('http://127.0.0.1:5173');
     simulationWindow.on('closed', () => {

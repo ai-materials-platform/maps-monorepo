@@ -3,7 +3,12 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
-const { BACKEND_URL, PRELOAD_PATH, buildSimMenu, saveToWorkspace, savePdf } = require("./shared.cjs");
+const { BACKEND_URL, PRELOAD_PATH, saveToWorkspace, savePdf } = require("./shared.cjs");
+// 세 앱 공통 창 꾸밈(apps/shared) — 셸이 띄운 시뮬 창과 같은 타이틀바·메뉴·테마
+const sharedDir = path.join(__dirname, "..", "..", "shared");
+const chrome = require(path.join(sharedDir, "window-chrome.cjs"));
+const { readTheme } = require(path.join(sharedDir, "theme-sync.cjs"));
+chrome.registerSharedScheme();
 
 // 시뮬 전용 프로필 디렉터리 (셸과 공유 금지 — 공유 시 single-instance 락 충돌로
 // 나중에 뜨는 쪽이 조용히 종료됨)
@@ -173,6 +178,7 @@ async function ensureBackend() {
 
 function createWindow() {
   const win = new BrowserWindow({
+    ...chrome.chromeOptions(readTheme()),
     width: 1600,
     height: 980,
     minWidth: 1200,
@@ -189,7 +195,8 @@ function createWindow() {
     }
   });
 
-  win.setMenu(buildSimMenu(win));
+  chrome.installHiddenMenu(win, "sim", (id) => win.webContents.send("menu-action", { action: id }))
+    .catch((err) => fileLog("[main] menu install failed:", err.message));
 
   win.webContents.on("did-finish-load", () => {
     fileLog("[main] did-finish-load → showing window");
@@ -224,7 +231,10 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  Menu.setApplicationMenu(null); // stock 영문 메뉴 제거 — 창마다 buildSimMenu로 붙인다
+  Menu.setApplicationMenu(null); // stock 영문 메뉴 제거 — 창마다 installHiddenMenu로 붙인다
+  chrome.registerSharedProtocol(sharedDir);
+  chrome.registerMenuIpc();
+  chrome.registerThemeSync();
   await ensureBackend();
   createWindow();
 

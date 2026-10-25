@@ -13,3 +13,19 @@ contextBridge.exposeInMainWorld("desktopApi", {
     return () => ipcRenderer.removeListener("menu-action", handler);
   },
 });
+
+// 공통 타이틀바·메뉴·테마 (셸 preload와 같은 이름) — apps/shared/window-chrome.cjs와 짝.
+// 샌드박스 preload는 다른 파일을 require할 수 없어 셸 preload와 같은 코드를 둔다.
+const subscribe = (channel, map) => (cb) => {
+  const handler = (_e, value) => cb(map(value));
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+};
+contextBridge.exposeInMainWorld("mapsUi", {
+  invoke: (id) => ipcRenderer.invoke("menu:invoke", id),
+  onAction: subscribe("menu-action", (msg) => msg && msg.action),
+  menuContext: () => ipcRenderer.invoke("menu:context"),
+  getTheme: () => ipcRenderer.invoke("theme:get"),
+  setTheme: (theme) => ipcRenderer.invoke("theme:set", theme),
+  onTheme: subscribe("theme-changed", (theme) => theme),
+});

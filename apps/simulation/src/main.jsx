@@ -1,6 +1,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
+import "../../shared/maps-theme.css";
+import "../../shared/titlebar.css";
 import "./styles.css";
 
 createRoot(document.getElementById("root")).render(
