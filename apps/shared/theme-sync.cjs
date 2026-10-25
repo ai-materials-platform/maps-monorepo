@@ -27,15 +27,26 @@ function retry(fn) {
   }
 }
 
+// 비우고 다시 쓰면(writeFileSync) 그 사이 읽는 쪽이 빈 파일을 본다 → 공백으로 길이를 고정해 제자리에 덮어쓴다.
+// (JSON 뒤 공백은 유효하다. 임시 파일+이름 바꾸기는 Windows에서 읽는 쪽이 막아 실패한다.)
+const SIZE = 32;
 function writeTheme(theme, file = themeFile()) {
   if (!THEMES.has(theme)) return;
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  retry(() => fs.writeFileSync(file, JSON.stringify({ theme }), "utf8"));
+  const data = Buffer.from(JSON.stringify({ theme }).padEnd(SIZE), "utf8");
+  retry(() => {
+    const fd = fs.openSync(file, fs.existsSync(file) ? "r+" : "w");
+    try {
+      fs.writeSync(fd, data, 0, data.length, 0);
+      fs.ftruncateSync(fd, data.length); // 예전 형식처럼 더 긴 파일이었을 때만 꼬리를 자른다
+    } finally {
+      fs.closeSync(fd);
+    }
+  });
 }
 
 // 없거나 값이 이상하면 라이트로 시작한다. 깨진 파일은 올바른 내용으로 다시 쓴다.
-// 다른 앱이 쓰는 도중이면 반쪽 파일이 읽힐 수 있어, 깨졌다고 보기 전에 몇 번 다시 읽는다
-// (안 그러면 남이 'dark'를 쓰는 중에 라이트로 덮어쓴다). 임시 파일+이름 바꾸기는 Windows에서 읽는 쪽이 막아 실패한다.
+// 그래도 쓰는 순간과 겹칠 수 있어, 깨졌다고 보기 전에 몇 번 다시 읽는다(안 그러면 남이 'dark'를 쓰는 중에 라이트로 덮어쓴다).
 function readTheme(file = themeFile()) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     let raw;

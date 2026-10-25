@@ -10,6 +10,7 @@ from pathlib import Path
 from PyQt6.QtCore import QFileSystemWatcher, QObject, QTimer, pyqtSignal
 
 _THEMES = {"light", "dark"}
+_SIZE = 32
 
 
 def theme_file() -> Path:
@@ -35,7 +36,15 @@ def write_theme(theme: str, path: Path | None = None) -> None:
         return
     p = Path(path or theme_file())
     p.parent.mkdir(parents=True, exist_ok=True)
-    _retry(lambda: p.write_text(json.dumps({"theme": theme}), encoding="utf-8"))
+    # 비우고 다시 쓰면 그 사이 읽는 쪽이 빈 파일을 본다 → 공백으로 길이를 고정해 제자리에 덮어쓴다 (theme-sync.cjs와 같음)
+    data = json.dumps({"theme": theme}).ljust(_SIZE).encode("utf-8")
+
+    def write():
+        with open(p, "r+b" if p.exists() else "wb") as fh:
+            fh.write(data)
+            fh.truncate(len(data))
+
+    _retry(write)
 
 
 def read_theme(path: Path | None = None) -> str:
