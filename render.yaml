@@ -12,21 +12,21 @@ services:
       - key: PYTHON_VERSION
         value: "3.12.3"
       - key: UPSTREAM_BASE_URL
-        sync: false
+        value: https://api.deepinfra.com/v1/openai
       - key: UPSTREAM_API_KEY
         sync: false
       - key: LLM_MODEL
-        sync: false
+        value: deepseek-ai/DeepSeek-V4.1-Flash
       - key: GUARD_MODEL
-        sync: false
+        value: deepseek-ai/DeepSeek-V4.1-Flash
       - key: EMBED_MODEL
-        sync: false
+        value: BAAI/bge-m3
       - key: ACCESS_CODE_HASHES
         sync: false
       - key: PRICE_IN_PER_M
-        sync: false
+        value: "0.14"
       - key: PRICE_OUT_PER_M
-        sync: false
+        value: "0.42"
       - key: MONTHLY_CAP_USD
         value: "10"
       - key: RATE_PER_HOUR

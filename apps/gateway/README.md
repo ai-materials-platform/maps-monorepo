@@ -68,6 +68,13 @@ python eval/run_eval.py --url http://127.0.0.1:8000 --code <접속 코드> --mod
 
 `LLM_MODEL`(필요하면 `GUARD_MODEL`, 단가 두 개)만 바꾸고 재배포한 뒤 평가를 다시 돌린다. 앱은 고칠 필요 없다. 임베딩 모델을 바꾸면 색인도 다시 만든다.
 
-## 확인한 모델·가격
+## 확인한 모델·가격 (2026-10-26, DeepInfra)
 
-Task 9(실제 배포)에서 공식 페이지를 확인하고 날짜와 함께 적는다.
+| 용도 | 모델 | 100만 토큰당 | 비고 |
+|---|---|---|---|
+| 답변·판정 | `deepseek-ai/DeepSeek-V4.1-Flash` | 입력 $0.14 / 출력 $0.42 | 이미지 입력 확인, 생각 모드 설정 불필요 |
+| 임베딩 | `BAAI/bge-m3` | $0.010 | 100개 넘는 언어, 1024차원 |
+| (비교) | `Qwen/Qwen3.6-35B-A3B` | 입력 $0.10 / 출력 $0.95 | 생각 모델 — 쓰려면 `UPSTREAM_EXTRA_BODY={"reasoning_effort": "none"}` 필요 |
+
+평가(공격 44·정상 42, 실제 모델): DeepSeek 공격 44/44 차단·잘못 거절 0/42, Qwen 44/44·1/42. 질문당 판정+답변 시간 DeepSeek 약 2.9초, Qwen 약 1.4초.
+`render.yaml`에 비밀이 아닌 값(주소·모델·단가)을 미리 넣어 두었다. Render에서 직접 넣을 값은 `UPSTREAM_API_KEY`, `ACCESS_CODE_HASHES` 둘.
