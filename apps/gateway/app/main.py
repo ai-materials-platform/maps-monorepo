@@ -3,6 +3,7 @@ import logging
 import secrets
 import time
 import uuid
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -11,6 +12,7 @@ from app.auth import AuthError, RateLimited, RateLimiter, verify_code
 from app.budget import Budget, BudgetExceeded
 from app.config import Settings
 from app.guard import classify
+from app.rag import Chunk, Index
 from app.prompt import (
     REFUSAL_BUDGET, REFUSAL_LEAK, REFUSAL_OFF_TOPIC, build_messages, leaks_canary, make_system_prompt, split_messages, text_of,
 )
@@ -63,6 +65,17 @@ def _completion(settings: Settings, text: str, usage: Usage) -> dict:
     }
 
 
+RAG_DIR = Path(__file__).resolve().parents[1] / "rag"
+
+
+def _load_default_index() -> Index:
+    try:
+        return Index.load(RAG_DIR)
+    except FileNotFoundError:
+        log.warning("RAG 색인(rag/index.npz)이 없어 자료 없이 답합니다. rag/build_index.py로 만드세요.")
+        return Index.empty()
+
+
 def create_app(settings: Settings, upstream: Upstream | None = None, index=None, budget: Budget | None = None,
                clock=time.time) -> FastAPI:
     app = FastAPI(title="MAPS 재료 챗봇 게이트웨이", docs_url=None, redoc_url=None, openapi_url=None)
@@ -73,6 +86,19 @@ def create_app(settings: Settings, upstream: Upstream | None = None, index=None,
     if upstream is None:
         from app.upstream import HttpUpstream  # noqa: PLC0415
         upstream = HttpUpstream(settings.upstream_base_url, settings.upstream_api_key)
+
+    if index is None:
+        index = _load_default_index()
+
+    def _retrieve(question: str, tag: str) -> list[Chunk]:
+        if not index.chunks:
+            return []
+        try:
+            qvec = upstream.embed(settings.embed_model, [question])[0]
+        except (UpstreamError, IndexError) as exc:  # 검색이 실패해도 답변은 자료 없이 계속
+            log.warning("rag_error code=%s err=%s", tag, type(exc).__name__)
+            return []
+        return index.search(qvec, settings.rag_k, settings.rag_min_score)
 
     @app.exception_handler(ApiError)
     async def _api_error(_request: Request, exc: ApiError):
@@ -112,7 +138,7 @@ def create_app(settings: Settings, upstream: Upstream | None = None, index=None,
             if not verdict.allowed:
                 log.info("refused code=%s reason=%s", tag, verdict.reason)
                 return _completion(settings, REFUSAL_OFF_TOPIC, guard_usage)
-            docs: list = []
+            docs = _retrieve(question, tag)
             prompt = build_messages(system_prompt, docs, app_context, turns[-settings.max_turns:])
             text, usage = upstream.chat(settings.llm_model, prompt, ANSWER_MAX_TOKENS, ANSWER_TEMPERATURE)
         except UpstreamError as exc:
