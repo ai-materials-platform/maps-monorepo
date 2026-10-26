@@ -1,6 +1,7 @@
 """게이트웨이 설정 — 전부 환경변수(Render)에서 읽는다. 모델 ID·단가도 코드에 박지 않는다."""
+import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 REQUIRED = (
     "UPSTREAM_BASE_URL", "UPSTREAM_API_KEY", "LLM_MODEL", "GUARD_MODEL", "EMBED_MODEL",
@@ -26,6 +27,8 @@ class Settings:
     max_image_bytes: int = 5_000_000
     rag_k: int = 4
     rag_min_score: float = 0.3
+    # 업스트림 chat 요청에 덧붙일 필드 (예: 생각 모드 끄기 {"reasoning_effort": "none"})
+    upstream_extra_body: dict = field(default_factory=dict)
 
 
 def load_settings(env: Mapping[str, str]) -> Settings:
@@ -45,4 +48,5 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         rate_per_hour=num("RATE_PER_HOUR", 30, int),
         rate_per_day=num("RATE_PER_DAY", 200, int),
         monthly_cap_usd=num("MONTHLY_CAP_USD", 10.0, float),
+        upstream_extra_body=json.loads(env.get("UPSTREAM_EXTRA_BODY") or "{}"),
     )

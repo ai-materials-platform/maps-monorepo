@@ -22,9 +22,11 @@ class Upstream(Protocol):
 
 
 class HttpUpstream:
-    def __init__(self, base_url: str, api_key: str, timeout: float = 60.0):
+    def __init__(self, base_url: str, api_key: str, timeout: float = 60.0, extra_body: dict | None = None,
+                 transport: httpx.BaseTransport | None = None):
+        self._extra = dict(extra_body or {})
         self._client = httpx.Client(
-            base_url=base_url.rstrip("/"), timeout=timeout,
+            base_url=base_url.rstrip("/"), timeout=timeout, transport=transport,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         )
 
@@ -43,7 +45,7 @@ class HttpUpstream:
 
     def chat(self, model, messages, max_tokens, temperature):
         data = self._post("/chat/completions", {
-            "model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature,
+            **self._extra, "model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature,
         })
         try:
             text = data["choices"][0]["message"]["content"] or ""

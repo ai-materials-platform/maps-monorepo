@@ -85,7 +85,7 @@ def create_app(settings: Settings, upstream: Upstream | None = None, index=None,
     system_prompt = make_system_prompt(canary)
     if upstream is None:
         from app.upstream import HttpUpstream  # noqa: PLC0415
-        upstream = HttpUpstream(settings.upstream_base_url, settings.upstream_api_key)
+        upstream = HttpUpstream(settings.upstream_base_url, settings.upstream_api_key, extra_body=settings.upstream_extra_body)
 
     if index is None:
         index = _load_default_index()
