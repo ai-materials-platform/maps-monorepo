@@ -10,8 +10,9 @@ from fastapi.responses import JSONResponse
 from app.auth import AuthError, RateLimited, RateLimiter, verify_code
 from app.budget import Budget, BudgetExceeded
 from app.config import Settings
+from app.guard import classify
 from app.prompt import (
-    REFUSAL_BUDGET, REFUSAL_LEAK, build_messages, leaks_canary, make_system_prompt, split_messages, text_of,
+    REFUSAL_BUDGET, REFUSAL_LEAK, REFUSAL_OFF_TOPIC, build_messages, leaks_canary, make_system_prompt, split_messages, text_of,
 )
 from app.upstream import Upstream, UpstreamError, Usage
 
@@ -104,9 +105,15 @@ def create_app(settings: Settings, upstream: Upstream | None = None, index=None,
             return _completion(settings, REFUSAL_BUDGET, Usage(0, 0))
 
         app_context, turns = split_messages(messages)
-        docs: list = []
-        prompt = build_messages(system_prompt, docs, app_context, turns[-settings.max_turns:])
+        question = text_of(next(m for m in reversed(turns) if m["role"] == "user")["content"])
         try:
+            verdict, guard_usage = classify(upstream, settings.guard_model, question)
+            budget.record(guard_usage)
+            if not verdict.allowed:
+                log.info("refused code=%s reason=%s", tag, verdict.reason)
+                return _completion(settings, REFUSAL_OFF_TOPIC, guard_usage)
+            docs: list = []
+            prompt = build_messages(system_prompt, docs, app_context, turns[-settings.max_turns:])
             text, usage = upstream.chat(settings.llm_model, prompt, ANSWER_MAX_TOKENS, ANSWER_TEMPERATURE)
         except UpstreamError as exc:
             log.warning("upstream_error code=%s err=%s", tag, type(exc).__name__)
