@@ -486,7 +486,7 @@ async function runSimulation(payload) {
 function callLLM(messages) {
   return new Promise((resolve, reject) => {
     const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY;
-    if (!apiKey) return reject(new Error('LLM_API_KEY(또는 OPENAI_API_KEY)가 설정되지 않았습니다. .env 파일을 확인하세요.'));
+    if (!apiKey) return reject(new Error('접속 코드가 없습니다. .env의 LLM_API_KEY에 관리자가 발급한 접속 코드를 넣어 주세요.'));
     const base = (process.env.LLM_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
     const url = new URL(`${base}/chat/completions`);
     const timeoutMs = Number(process.env.LLM_TIMEOUT || 120) * 1000;
