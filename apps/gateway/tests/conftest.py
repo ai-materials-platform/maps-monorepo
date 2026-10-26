@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.auth import hash_code  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.main import create_app  # noqa: E402
+from app.upstream import UpstreamError, Usage  # noqa: E402
 
 CODE = "test-code"
 AUTH = {"Authorization": f"Bearer {CODE}"}
@@ -37,6 +38,34 @@ class FakeClock:
 
     def advance(self, sec: float) -> None:
         self.t += sec
+
+
+class FakeUpstream:
+    """replies: 문자열 목록(차례로, 마지막은 반복) 또는 messages를 받는 함수. 판정 모델 호출엔 guard_replies."""
+
+    def __init__(self, replies=None, usage=Usage(10, 5), raise_error=False, guard_replies=None, embed_vector=None):
+        self.replies = replies if replies is not None else ["답변"]
+        self.usage = usage
+        self.raise_error = raise_error
+        self.guard_replies = list(guard_replies or ['{"allowed": true, "reason": "ok"}'])
+        self.embed_vector = embed_vector or [1.0, 0.0]
+        self.calls: list[dict] = []
+
+    @staticmethod
+    def _next(pool, messages):
+        if callable(pool):
+            return pool(messages)
+        return pool.pop(0) if len(pool) > 1 else pool[0]
+
+    def chat(self, model, messages, max_tokens, temperature):
+        self.calls.append({"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature})
+        if self.raise_error:
+            raise UpstreamError(f"boom {SETTINGS.upstream_api_key}")
+        pool = self.guard_replies if model == SETTINGS.guard_model else self.replies
+        return self._next(pool, messages), self.usage
+
+    def embed(self, model, texts):
+        return [list(self.embed_vector) for _ in texts]
 
 
 def make_client(upstream=None, index=None, clock=None, **overrides) -> TestClient:
