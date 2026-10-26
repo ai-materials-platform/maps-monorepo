@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.auth import hash_code  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.main import create_app  # noqa: E402
+from app.rag import Index  # noqa: E402
 from app.upstream import UpstreamError, Usage  # noqa: E402
 
 CODE = "test-code"
@@ -73,4 +74,5 @@ def make_client(upstream=None, index=None, clock=None, **overrides) -> TestClien
     kwargs = {}
     if clock is not None:
         kwargs["clock"] = clock
-    return TestClient(create_app(settings, upstream=upstream, index=index, **kwargs))
+    # 기본은 빈 색인 — 레포의 실제 rag/index.npz에 테스트가 묶이지 않게
+    return TestClient(create_app(settings, upstream=upstream, index=index if index is not None else Index.empty(), **kwargs))

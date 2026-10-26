@@ -55,3 +55,12 @@ def test_unrelated_doc_is_not_injected(tmp_path):
     up = FakeUpstream(["답"], embed_vector=[1.0, 0.0])
     make_client(upstream=up, index=idx).post(URL, headers=AUTH, json=Q)
     assert '<자료 출처="' not in up.calls[-1]["messages"][0]["content"]
+
+
+def test_embedding_dimension_mismatch_answers_without_docs():
+    # EMBED_MODEL을 바꾸고 색인을 다시 안 만든 경우 — 500이 아니라 자료 없이 답해야 한다
+    idx = Index(np.ones((3, 1024)), [Chunk(f"t{i}", f"s{i}", "t") for i in range(3)])
+    up = FakeUpstream(["답"], embed_vector=[1.0, 0.0])
+    r = make_client(upstream=up, index=idx).post(URL, headers=AUTH, json=Q)
+    assert r.status_code == 200 and r.json()["choices"][0]["message"]["content"] == "답"
+    assert '<자료 출처="' not in up.calls[-1]["messages"][0]["content"]

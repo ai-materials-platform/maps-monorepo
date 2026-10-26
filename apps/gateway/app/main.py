@@ -95,10 +95,11 @@ def create_app(settings: Settings, upstream: Upstream | None = None, index=None,
             return []
         try:
             qvec = upstream.embed(settings.embed_model, [question])[0]
-        except (UpstreamError, IndexError) as exc:  # 검색이 실패해도 답변은 자료 없이 계속
+            return index.search(qvec, settings.rag_k, settings.rag_min_score)
+        except (UpstreamError, IndexError, ValueError) as exc:
+            # 검색이 실패해도 답변은 자료 없이 계속. ValueError = 임베딩 차원 불일치(EMBED_MODEL을 바꾸고 색인을 안 다시 만든 경우)
             log.warning("rag_error code=%s err=%s", tag, type(exc).__name__)
             return []
-        return index.search(qvec, settings.rag_k, settings.rag_min_score)
 
     @app.exception_handler(ApiError)
     async def _api_error(_request: Request, exc: ApiError):
