@@ -66,6 +66,7 @@ PyQt는 `maps-theme.css`를 정규식으로 읽어 `{이름: 값}` 사전을 만
 | `--maps-accent` | `#1E293B` | `#1E293B` |
 | `--maps-primary` | `#1D4ED8` | `#1D4ED8` |
 | `--maps-primary-hover` | `#2563EB` | `#2563EB` |
+| `--maps-primary-text` | `#1D4ED8` | `#4DAAFC` |
 | `--maps-success` | `#58C472` | `#58C472` |
 | `--maps-danger` | `#C42B1C` | `#C42B1C` |
 | `--maps-titlebar-bg` | `#FFFFFF` | `#1E1E1E` |
@@ -83,6 +84,7 @@ PyQt는 `maps-theme.css`를 정규식으로 읽어 `{이름: 값}` 사전을 만
 - 그림자는 없앤다(PyQt 기준). 셸 카드 그림자를 제거한다.
 - 폰트는 Windows 기본 폰트만 쓴다. 시뮬의 구글 폰트 로드(`index.html`)를 제거한다.
 - 다크 `--maps-menu-text`·`--maps-menu-hover`는 PyQt에 없던 값이라 새로 정했다. 구현 중 화면 확인 후 조정할 수 있다.
+- 파랑은 두 가지다(2026-10-25 추가): 버튼 바탕 `--maps-primary`(흰 글자 6.7:1)와 글자·아이콘 `--maps-primary-text`. 파랑 하나로는 다크에서 '어두운 바탕 위 파란 글자'와 '파란 버튼 위 흰 글자'를 둘 다 4.5:1로 맞출 수 없다. GitHub Primer(`fgColor-accent`/`bgColor-accent-emphasis`)·VS Code(`textLink.foreground`/`button.background`)와 같은 방식이며, 다크 글자색은 VS Code 링크색이다. `test_theme_tokens.py`가 대비를 검사한다.
 
 ## 5. 타이틀바
 
