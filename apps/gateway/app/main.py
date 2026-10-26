@@ -152,3 +152,13 @@ def create_app(settings: Settings, upstream: Upstream | None = None, index=None,
         return _completion(settings, text, usage)
 
     return app
+
+
+def app_from_env() -> FastAPI:
+    """uvicorn 진입점: uvicorn app.main:app_from_env --factory (설정은 환경변수)."""
+    import os  # noqa: PLC0415
+
+    from app.config import load_settings  # noqa: PLC0415
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    return create_app(load_settings(os.environ))

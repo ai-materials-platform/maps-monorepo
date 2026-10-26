@@ -373,7 +373,7 @@ class FloatingChatDialog(QDialog):
 
         api_key = self._api_key_edit.text().strip() or _llm_api_key()
         if not api_key:
-            self._add_bubble("API 키가 없습니다. .env 파일에 LLM_API_KEY(또는 OPENAI_API_KEY)를 설정해 주세요.", is_user=False)
+            self._add_bubble("접속 코드가 없습니다. .env의 LLM_API_KEY에 관리자가 발급한 접속 코드를 넣어 주세요.", is_user=False)
             return
 
         self._send_btn.setEnabled(False)
