@@ -50,6 +50,10 @@ def _validate(body, settings: Settings) -> list[dict]:
         raise ApiError(413, "too_large", f"질문은 {settings.max_user_chars}자 이내로 보내 주세요.")
     if _image_bytes(messages) > settings.max_image_bytes:
         raise ApiError(413, "too_large", "첨부 이미지가 너무 커요.")
+    context, turns = split_messages(messages)
+    forwarded = len(context) + sum(len(text_of(t["content"])) for t in turns[-settings.max_turns:])
+    if forwarded > settings.max_context_chars:
+        raise ApiError(413, "too_large", "대화가 너무 길어요. 새 대화로 시작해 주세요.")
     return messages
 
 

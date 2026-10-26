@@ -52,3 +52,16 @@ def test_budget_exceeded_returns_refusal_text():
     r = make_client(upstream=up, monthly_cap_usd=0.0).post(URL, headers=AUTH, json=Q)
     assert r.status_code == 200 and r.json()["choices"][0]["message"]["content"] == REFUSAL_BUDGET
     assert up.calls == []
+
+
+def test_total_context_size_is_limited():
+    # 마지막 질문만 짧고 이전 턴·앱상태가 거대하면 토큰(비용)이 폭증한다 → 전체 글자 수도 제한
+    up = FakeUpstream()
+    big_history = {"messages": [{"role": "user", "content": "가" * 1900}, {"role": "assistant", "content": "나" * 1900}] * 4
+                   + [{"role": "user", "content": "q"}]}
+    r = make_client(upstream=up).post(URL, headers=AUTH, json=big_history)
+    assert (r.status_code, r.json()["error"]["code"]) == (413, "too_large") and up.calls == []
+    big_ctx = {"messages": [{"role": "system", "content": "x" * 20_000}, {"role": "user", "content": "q"}]}
+    assert make_client(upstream=FakeUpstream()).post(URL, headers=AUTH, json=big_ctx).status_code == 413
+    ok = {"messages": [{"role": "system", "content": "예측 결과 " * 200}, {"role": "user", "content": "q"}]}
+    assert make_client(upstream=FakeUpstream()).post(URL, headers=AUTH, json=ok).status_code == 200

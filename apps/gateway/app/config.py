@@ -24,6 +24,7 @@ class Settings:
     monthly_cap_usd: float = 10.0
     max_user_chars: int = 2000
     max_turns: int = 8
+    max_context_chars: int = 12_000  # 앱상태 + 전달할 최근 턴의 글자 합 (비용 폭증 방지)
     max_image_bytes: int = 5_000_000
     rag_k: int = 4
     rag_min_score: float = 0.3
