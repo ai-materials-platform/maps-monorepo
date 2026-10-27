@@ -333,6 +333,36 @@ def list_models():
     return jsonify({'status': 'success', 'models': items})
 
 
+@app.route('/domain', methods=['GET'])
+def domain():
+    """사전학습 모델의 학습 데이터 범위 (전처리·클리핑 후).
+
+    입력에서 빠진 컬럼은 추론 시 0으로 채워지므로, 미지정 값은 median을 쓰는 게 안전하다.
+    """
+    ok, msg = _load_pretrained_bundle()
+    if not ok:
+        return jsonify({'error': msg}), 400
+    eng = pretrained_data_engine
+    if eng.df is None:
+        return jsonify({'error': '사전학습 번들에 학습 데이터가 없습니다.'}), 400
+
+    def _ranges(cols):
+        stats = eng.df[cols].describe()
+        return {c: {k: round(float(stats.at[s, c]), 6) for k, s in
+                    (('min', 'min'), ('median', '50%'), ('max', 'max'))} for c in cols}
+
+    features = [c for c in eng.raw_feature_cols if c in eng.df.columns]
+    # 키는 /predict 응답의 predictions 키와 동일 (target_cols와 같은 순서)
+    target_map = {n: c for n, c in zip(TARGET_NAMES, eng.target_cols) if c in eng.df.columns}
+    target_ranges = _ranges(list(target_map.values()))
+    return jsonify({
+        'status': 'success',
+        'samples': int(len(eng.df)),
+        'features': _ranges(features),
+        'targets': {n: target_ranges[c] for n, c in target_map.items()},
+    })
+
+
 @app.route('/predict/custom', methods=['POST'])
 def predict_custom():
     body = request.json or {}
