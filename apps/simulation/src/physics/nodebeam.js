@@ -6,6 +6,9 @@ import { generateStressStrainCurve } from '../lib/physics.js';
 const TABLE = 256;
 // ponytail: 자기 접촉(접힌 면끼리 닿는 것)이 없어서, 빔이 길이 0까지 눌려 납작해지는 걸 이 한계로 막는다. 제대로 하려면 노드-면 충돌.
 const COMPRESS_LOCK = 0.5;
+// 손상: 인장 소성은 연신율만큼 쌓이면 파단. 압축(접힘) 소성은 그 COMPRESS_DAMAGE배까지 버틴다 → 취성 재료는 구겨지다 깨지고 연성 재료는 접힌다.
+// ponytail: 3배는 가정 값 (MAPS가 예측하는 물성이 아니다) — 압축·굽힘 파단 실험값이 있으면 그걸로.
+const COMPRESS_DAMAGE = 3;
 
 // 예측값({yieldStressMpa, strengthMpa, elongationPercent, elasticityGpa, density[g/cm³]}) → 재료.
 // 유동 곡선은 MAPS 응력-변형률 곡선(lib/physics.js)을 UTS까지 따라가고 그 뒤로는 UTS를 유지한다.
@@ -89,6 +92,7 @@ export class World {
     const nb = this.beams.length;
     this.beamEp = new Float64Array(nb);       // 소성 변형률 (부호 있음)
     this.beamAlpha = new Float64Array(nb);    // 누적 소성 변형률
+    this.beamDamage = new Float64Array(nb);   // 손상 0 → 1(파단)
     this.beamBroken = new Uint8Array(nb);
     this.beamStress = new Float64Array(nb);   // 화면 색칠용
     // 굽힘의 기준 모양 = 처음 모양 (평판은 0, 곡면은 처음 곡률)
@@ -145,6 +149,8 @@ export class World {
         this.beamAlpha[b] += dg;
         stress -= sign * mat.E * dg;
         this.plasticWork += Math.abs(stress) * dg * A * L0;
+        this.beamDamage[b] += dg / (mat.epsBreak * (sign > 0 ? 1 : COMPRESS_DAMAGE));
+        if (this.beamDamage[b] >= 1) { this.beamBroken[b] = 1; this.beamStress[b] = 0; continue; }
       }
       this.beamStress[b] = stress;
       const nx = dx / L, ny = dy / L, nz = dz / L;

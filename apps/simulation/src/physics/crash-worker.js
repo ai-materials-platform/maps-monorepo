@@ -6,7 +6,7 @@ import { SCENARIOS, createSim } from './scenarios.js';
 let sim = null, simId = 0, slow = 500, running = false, startedAt = 0, timer = 0;
 const SAMPLE = 0.0005, SMOOTH = 12;   // 감속도 그래프용 속도 기록 간격(초)과 미분 간격(칸)
 
-// 누적 소성 변형률 / 파단 변형률: 0 회색 → 0.5 노랑 → 1 빨강
+// 손상(0 멀쩡 → 1 파단): 0 회색 → 0.5 노랑 → 1 빨강
 function damageColor(d, out, o) {
   const a = [0.56, 0.64, 0.72], b = [1.0, 0.82, 0.29], c = [1.0, 0.23, 0.19];
   const [p, q, t] = d < 0.5 ? [a, b, d * 2] : [b, c, (d - 0.5) * 2];
@@ -39,7 +39,7 @@ function postFrame(finished) {
   const positions = Float32Array.from(world.pos), colors = new Float32Array(3 * n);
   for (let a = 0; a < n; a += 1) {
     let d = 0;
-    for (const q of sim.incident[a]) d = Math.max(d, world.beamBroken[q] ? 1 : world.beamAlpha[q] / sim.mat.epsBreak);
+    for (const q of sim.incident[a]) d = Math.max(d, world.beamBroken[q] ? 1 : world.beamDamage[q]);
     damageColor(Math.min(1, d), colors, 3 * a);
   }
   const broken = world.brokenCount();

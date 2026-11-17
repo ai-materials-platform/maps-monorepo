@@ -240,7 +240,7 @@ export default function CrashLab({ materials, matKey: fixedKey, embedded = false
           <button type="button" className="sb-btn primary" onClick={() => setShot((s) => ({ n: s.n + 1, running: true }))}>발사</button>
           <button type="button" className="sb-btn" onClick={() => setShot((s) => ({ n: s.n + 1, running: false }))}>초기화</button>
         </div>
-        <div className="sb-legend">소성 변형 (파단 변형률 대비)<i /><span><b>0</b><b>파단</b></span></div>
+        <div className="sb-legend">재료 손상<i /><span><b>멀쩡</b><b>파단</b></span></div>
         <p className="sb-note">물성 기반의 실시간 근사 물리(노드-빔)입니다. 공학 해석(FEM)을 대신하지 않습니다. 마우스로 돌려 볼 수 있습니다.</p>
       </aside>
       <div className="sb-views">

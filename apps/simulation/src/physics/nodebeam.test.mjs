@@ -120,6 +120,14 @@ test('same impact, different alloy: ductile steel dents and stops the ball, brit
   assert.ok(d.w.plasticWork > 2 * b.w.plasticWork);                              // 연성이 에너지를 더 흡수
 });
 
+test('crushing breaks a brittle beam but only folds a ductile one', () => {
+  const b = pullSingleBeam(materialFromPrediction(BRITTLE), (u) => -0.3 * u);
+  const brokeAt = b.find((r) => r.broken);
+  assert.ok(brokeAt && brokeAt.eps < -0.08 && brokeAt.eps > -0.12, `brittle broke at ${brokeAt?.eps}`);   // 연신율 3% × 3
+  const d = pullSingleBeam(materialFromPrediction(DUCTILE), (u) => -0.8 * u);
+  assert.ok(!d.at(-1).broken);
+});
+
 test('a thin-walled member (compress < 1) yields early in compression only', () => {
   const mat = { ...materialFromPrediction(MID), compress: 0.25 };
   const pull = pullSingleBeam(mat, (u) => 0.01 * u), push = pullSingleBeam(mat, (u) => -0.01 * u);
