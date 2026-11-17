@@ -1,5 +1,5 @@
 // 충돌 시나리오: 예측 물성(pred)과 속도로 World를 꾸민다 (three.js 없음 — node에서도 돈다).
-// build(pred, speed) → { world, shells, mat, dt, measure() → { speed, deformMm, done } }
+// build(pred, speed) → { world, shells, mat, measure() → { speed, deformMm, done } } · duration(speed): 보여 줄 시뮬 시간(초)
 import { World, plateMaterial, buildPlate, buildShell } from './nodebeam.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -37,14 +37,15 @@ export const SCENARIOS = {
     label: '판 찌그러짐',
     note: '네 변을 고정한 400×400×2 mm 판에 지름 80 mm · 1 kg 강체 구를 쏩니다.',
     speedLabel: '구 속도', speed: { min: 10, max: 300, step: 5, initial: 80 }, slow: 500, deformLabel: '최대 처짐',
+    duration: (speed) => 0.2 / speed + 0.008,
     build(pred, speed) {
       const world = new World({ gravity: [0, 0, 0] });
       const mat = plateMaterial(pred);
       const plate = buildPlate(world, { ...PLATE, material: mat });
       world.addSphere([0.003, 0.004, BALL.startZ], [0, 0, -speed], BALL.radius, BALL.mass);
       world.init();
+      let dent = 0;   // 지금까지 가장 깊이 들어간 값 (탄성으로 되튀어도 남긴다)
       const measure = () => {
-        let dent = 0;
         for (let a = 0; a < world.n; a += 1) dent = Math.min(dent, world.pos[3 * a + 2]);
         const s = world.spheres[0];
         return { speed: Math.hypot(...s.vel), deformMm: -dent * 1000, through: s.pos[2] < -0.08 && s.vel[2] < 0, done: s.vel[2] >= 0 };
@@ -57,6 +58,7 @@ export const SCENARIOS = {
     label: '로켓 동체 충돌',
     note: '지름 300 mm · 길이 1.6 m · 두께 2 mm 동체(탑재물 20 kg)가 단단한 벽에 머리부터 부딪힙니다.',
     speedLabel: '충돌 속도', speed: { min: 20, max: 300, step: 10, initial: 120 }, slow: 300, deformLabel: '찌그러진 길이',
+    duration: (speed) => 2.4 / speed,
     build(pred, speed) {
       const R = ROCKET, world = new World({ gravity: [0, 0, 0] });
       const mat = plateMaterial(pred);
@@ -83,6 +85,7 @@ export const SCENARIOS = {
     label: '차량 정면 충돌',
     note: '길이 4.4 m · 약 1.3 t 차체(두께 1 mm 판재 셸)가 단단한 벽에 정면으로 부딪힙니다.',
     speedLabel: '충돌 속도', speed: { min: 5, max: 40, step: 1, initial: 15 }, slow: 100, deformLabel: '찌그러진 길이',
+    duration: (speed) => 2.0 / speed,
     // ponytail: 격자 한 칸이 10 cm라 실제보다 덜 접힌다 — 두께 1 mm는 54 km/h에서 0.5 m쯤 찌그러지도록 맞춘 값.
     // ponytail: 속이 빈 셸 하나 — 엔진·프레임·바퀴·중력 없음(충돌 0.1초 동안 중력 영향은 작다). 필요하면 내부 뼈대 빔과 바닥 평면 추가.
     build(pred, speed) {

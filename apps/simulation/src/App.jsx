@@ -35,6 +35,7 @@ import * as THREE from "three";
 import { generateStressStrainCurve, vonMisesAtVertex, vonMisesBending, predictPhases, classifyFracture } from "./lib/physics.js";
 import ReportModal from "./components/ReportModal.jsx";
 import LatticeViewer from "./components/LatticeViewer.jsx";
+import CrashLab from "./physics/CrashLab.jsx";
 import { mountTitlebar } from "../../shared/titlebar.js";
 import menuSpec from "../../shared/menus.json";
 
@@ -541,6 +542,7 @@ function App() {
   // 도형은 시편 고정 (구·정육면체·직육면체 UI 제거).
   // ponytail: DeformableShape/FracturedMesh의 비시편 분기는 아직 남아 있음 — 다시 안 쓰기로 확정되면 삭제.
   const shape = "specimen";
+  const [view, setView] = useState("specimen");   // 가운데 화면: "specimen"(시편 시험) | "crash"(충돌 시뮬)
   const [interactMode, setInteractMode] = useState("orbit");
   const orbitEnabledRef = useRef(true);
   const [resetKey, setResetKey] = useState(0);
@@ -595,6 +597,13 @@ function App() {
   );
 
   const selectedAlloy = alloys.find((alloy) => alloy.id === selectedId) ?? alloys[0];
+  // 충돌 시뮬 재료: 목록의 합금마다 예측 물성 (선택한 합금은 화면에 떠 있는 최신 예측)
+  // 아직 예측을 받지 않은 합금(자리 표시 값)은 뺀다 — 가짜 값으로 비교하지 않게
+  const crashMaterials = useMemo(() => Object.fromEntries(alloys.filter((alloy) => alloy.id === selectedAlloy.id || alloy.prediction !== DEFAULT_PREDICTION).map((alloy) => {
+    const p = alloy.id === selectedAlloy.id ? prediction : alloy.prediction;
+    return [alloy.id, { label: alloy.name, yieldStressMpa: p.yieldStressMpa ?? p.strengthMpa * 0.7, strengthMpa: p.strengthMpa,
+      elongationPercent: p.elongationPercent, elasticityGpa: p.elasticityGpa, density: p.density }];
+  })), [alloys, selectedAlloy.id, prediction]);
 
   useEffect(() => {
     if (!selectedAlloy) return;
@@ -1398,9 +1407,12 @@ function App() {
 
         </aside>
 
-        <section className="viewport-panel panel">
+        <section className={`viewport-panel panel${view === "crash" ? " crash-view" : ""}`}>
           <div className="viewport-toolbar">
-            {[
+            <button className={view === "specimen" ? "active" : ""} onClick={() => setView("specimen")}>시편 시험</button>
+            <button className={view === "crash" ? "active" : ""} onClick={() => setView("crash")}>충돌 시뮬</button>
+            <span className="toolbar-sep" />
+            {view === "specimen" && [
               ["thermal", "열 분포"],
               ["stress", "응력 분포"],
               ["xray", "X-Ray"],
@@ -1408,9 +1420,12 @@ function App() {
             ].map(([id, label]) => (
               <button key={id} className={activeMode === id ? "active" : ""} onClick={() => setActiveMode(id)}>{label}</button>
             ))}
-            <button className={compareMode ? "active" : ""} onClick={() => setCompareMode((value) => !value)}>모델 비교</button>
-            <span className="toolbar-sep" />
-            <button onClick={handleReset}><RotateCcw size={14} style={{ marginRight: 4 }} />초기화</button>
+            {view === "specimen" && <>
+              <button className={compareMode ? "active" : ""} onClick={() => setCompareMode((value) => !value)}>모델 비교</button>
+              <span className="toolbar-sep" />
+              <button onClick={handleReset}><RotateCcw size={14} style={{ marginRight: 4 }} />초기화</button>
+            </>}
+            {view === "crash" && <span className="toolbar-label">왼쪽 목록에서 고른 합금의 예측 물성으로 계산합니다</span>}
           </div>
           <div className="viewport-toolbar">
             <span className="toolbar-label">도형</span>
@@ -1426,6 +1441,10 @@ function App() {
             >변형 테스트</button>
           </div>
 
+          {view === "crash" ? (
+            <div className="crash-host"><CrashLab embedded materials={crashMaterials} matKey={selectedAlloy.id}
+              compareHint="비교할 합금이 아직 없습니다. 왼쪽 목록에서 다른 합금을 고르고 '예측 실행'을 누르면 여기에 나옵니다." /></div>
+          ) : (
           <div className={`viewport-stage${interactMode === "deform" ? " deform-active" : ""}`}>
             <Canvas gl={{ preserveDrawingBuffer: true, antialias: true }} camera={{ position: [0, 0.2, 8.5], fov: 36, near: 0.1, far: 200 }} dpr={[1, 2]}>
               <color attach="background" args={["#1a2235"]} />
@@ -1532,6 +1551,7 @@ function App() {
               </div>
             )}
           </div>
+          )}
 
           <div className="test-strip">
             {TESTS.filter((test) => test.specimenOnly === (shape === "specimen")).map((test) => {
