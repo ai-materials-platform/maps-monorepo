@@ -1,9 +1,10 @@
 // 충돌 물리를 화면과 다른 스레드에서 돌린다 — 화면(CrashLab.jsx)은 그리기만 한다.
 // 받는 메시지: { type: 'init', key, pred, speed } (발사 전 상태로 준비) · { type: 'run' } · { type: 'slow', slow }
-// 보내는 메시지: { type: 'frame', id, positions, colors, index?, ball, stats, finished }
+// 보내는 메시지: { type: 'frame', id, positions, colors, index?, spheres, wheels, wheelRadius, stats, decel?, finished }
 import { SCENARIOS, createSim } from './scenarios.js';
 
 let sim = null, simId = 0, slow = 500, running = false, startedAt = 0, timer = 0;
+const SAMPLE = 0.0005, SMOOTH = 12;   // 감속도 그래프용 속도 기록 간격(초)과 미분 간격(칸)
 
 // 누적 소성 변형률 / 파단 변형률: 0 회색 → 0.5 노랑 → 1 빨강
 function damageColor(d, out, o) {
@@ -42,8 +43,17 @@ function postFrame(finished) {
     damageColor(Math.min(1, d), colors, 3 * a);
   }
   const broken = world.brokenCount();
-  const msg = { type: 'frame', id: simId, positions, colors, finished, ball: world.spheres[0] ? [...world.spheres[0].pos] : null,
+  const msg = { type: 'frame', id: simId, positions, colors, finished,
+    spheres: world.spheres.flatMap((s) => [...s.pos, s.radius]),
+    wheels: (sim.wheels ?? []).flatMap((a) => [world.pos[3 * a], world.pos[3 * a + 1], world.pos[3 * a + 2]]), wheelRadius: sim.wheelRadius ?? 0,
     stats: { ...sim.measure(), timeMs: sim.time * 1000, broken, total: world.beams.length, absorbed: world.plasticWork, ke0: sim.ke0 } };
+  if (sim.key !== 'plate') {
+    // 감속도(g) = 속도 기록을 SMOOTH칸(6 ms) 간격으로 미분 — 노드 진동과 첫 충격파의 뾰족한 값을 누그러뜨린다
+    const v = sim.speeds, g = new Float32Array(Math.max(0, v.length - SMOOTH));
+    let peak = 0;
+    for (let i = 0; i < g.length; i += 1) { g[i] = Math.max(0, -(v[i + SMOOTH] - v[i]) / (SMOOTH * SAMPLE) / 9.81); peak = Math.max(peak, g[i]); }
+    msg.decel = { g, peak, total: Math.ceil(sim.duration / SAMPLE) - SMOOTH };
+  }
   const transfer = [positions.buffer, colors.buffer];
   if (broken !== sim.lastBroken) { msg.index = buildIndex(); transfer.push(msg.index.buffer); sim.lastBroken = broken; }
   self.postMessage(msg, transfer);
@@ -53,7 +63,10 @@ function postFrame(finished) {
 function loop() {
   if (!running) return;
   const target = Math.min(sim.duration, (performance.now() - startedAt) / 1000 / slow), until = performance.now() + 14;
-  while (sim.time < target && performance.now() < until) { sim.world.step(sim.dt); sim.time += sim.dt; }
+  while (sim.time < target && performance.now() < until) {
+    sim.world.step(sim.dt); sim.time += sim.dt;
+    if (sim.time >= sim.speeds.length * SAMPLE) sim.speeds.push(sim.measure().speed);
+  }
   if (sim.time < target) startedAt = performance.now() - sim.time * slow * 1000;   // 밀린 만큼 시계를 늦춘다
   const finished = sim.time >= sim.duration;
   postFrame(finished);
@@ -69,6 +82,7 @@ self.onmessage = ({ data }) => {
     running = false;
     sim = createSim(data.key, data.pred, data.speed);
     sim.duration = SCENARIOS[data.key].duration(data.speed);
+    sim.speeds = [];
     simId = data.id;
     postFrame(false);
   } else if (data.type === 'run' && sim && !running) {

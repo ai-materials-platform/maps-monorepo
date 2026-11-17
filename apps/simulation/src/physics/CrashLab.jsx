@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { SCENARIOS, PLATE, BALL, ROCKET, CAR } from "./scenarios.js";
+import { SCENARIOS, PLATE, ROCKET, CAR } from "./scenarios.js";
 import "./crash.css";
 
 const CAMERA = {
@@ -52,6 +52,7 @@ function CrashViewport({ scenario, pred, speed, slow, shot, label, camSync }) {
   const idRef = useRef(0);
   const firedRef = useRef(0);
   const [stats, setStats] = useState(null);
+  const [decel, setDecel] = useState(null);
   // 부모가 같은 값의 새 객체를 넘겨도 다시 준비하지 않도록 값으로 비교한다
   const predKey = [pred.yieldStressMpa, pred.strengthMpa, pred.elongationPercent, pred.elasticityGpa, pred.density].join();
 
@@ -75,8 +76,10 @@ function CrashViewport({ scenario, pred, speed, slow, shot, label, camSync }) {
     // flatShading: 면마다 법선을 셰이더가 계산한다 — 접혀서 겹친 삼각형에서도 법선이 깨지지 않는다
     const geo = new THREE.BufferGeometry();
     scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, metalness: 0.55, roughness: 0.45, flatShading: true })));
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 32, 20), new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.2, roughness: 0.35 }));
-    scene.add(ball);
+    // 강체 구(쏘는 구·엔진)와 바퀴: 필요한 만큼 만들어 두고 위치만 옮긴다
+    const pool = (make) => { const list = []; return (count) => { while (list.length < count) { const m = make(); scene.add(m); list.push(m); } list.forEach((m, i) => { m.visible = i < count; }); return list; }; };
+    const sphereMeshes = pool(() => new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.2, roughness: 0.35 })));
+    const wheelMeshes = pool(() => { const m = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.6, 28), new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.8 })); m.rotation.x = Math.PI / 2; return m; });
     let decor = null, shown = null, seenCam = 0;
 
     const worker = new Worker(new URL("./crash-worker.js", import.meta.url), { type: "module" });
@@ -89,8 +92,9 @@ function CrashViewport({ scenario, pred, speed, slow, shot, label, camSync }) {
       }
       if (data.index) geo.setIndex(new THREE.BufferAttribute(data.index, 1));
       geo.computeBoundingSphere();
-      ball.visible = !!data.ball;
-      if (data.ball) ball.position.set(...data.ball);
+      sphereMeshes(data.spheres.length / 4).forEach((m, i) => { if (m.visible) { m.position.fromArray(data.spheres, 4 * i); m.scale.setScalar(data.spheres[4 * i + 3]); } });
+      wheelMeshes(data.wheels.length / 3).forEach((m, i) => { if (m.visible) { m.position.fromArray(data.wheels, 3 * i); m.scale.setScalar(data.wheelRadius); } });
+      setDecel(data.decel && data.stats.timeMs > 0 ? data.decel : null);
       setStats(data.stats.timeMs > 0 ? data.stats : null);
     };
     apiRef.current = {
@@ -154,6 +158,14 @@ function CrashViewport({ scenario, pred, speed, slow, shot, label, camSync }) {
           <dt>끊어진 빔</dt><dd>{stats.broken} / {stats.total}</dd>
           <dt>흡수한 에너지</dt><dd>{kJ(stats.absorbed)} / {kJ(stats.ke0)}</dd>
         </dl>
+      )}
+      {decel && decel.g.length > 1 && (
+        <figure className="sb-decel">
+          <figcaption>{scenario === "car" ? "탑승 공간 감속도" : "뒤쪽(탑재부) 감속도"} <b>최대 {decel.peak.toFixed(0)} g</b></figcaption>
+          <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+            <polyline points={Array.from(decel.g, (g, i) => `${((100 * i) / Math.max(1, decel.total - 1)).toFixed(1)},${(39 - (38 * g) / Math.max(1, decel.peak)).toFixed(1)}`).join(" ")} />
+          </svg>
+        </figure>
       )}
     </div>
   );
