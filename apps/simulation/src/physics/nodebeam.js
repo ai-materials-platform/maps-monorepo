@@ -34,7 +34,7 @@ export class World {
     this.gravity = gravity;
     this.damping = damping;      // 빔 방향 상대속도 감쇠 비 (임계 감쇠 대비)
     this.n = 0;
-    this._pos = []; this._mass = []; this._fixed = [];
+    this._pos = []; this._mass = []; this._fixed = []; this._radius = [];
     this.beams = [];             // {i, j, L0, A, mat}
     this.bends = [];             // {i, j, k, kb, lim, b1, b2}
     this.spheres = [];           // {pos:[3], vel:[3], radius, mass}
@@ -45,8 +45,9 @@ export class World {
     this._ready = false;
   }
 
-  addNode(x, y, z, mass, fixed = false) {
-    this._pos.push(x, y, z); this._mass.push(mass); this._fixed.push(fixed ? 1 : 0);
+  // radius > 0: 바퀴처럼 크기가 있는 노드 — 벽·바닥에 반지름만큼 떨어져 닿고, 굴러간다고 보고 마찰을 받지 않는다
+  addNode(x, y, z, mass, fixed = false, radius = 0) {
+    this._pos.push(x, y, z); this._mass.push(mass); this._fixed.push(fixed ? 1 : 0); this._radius.push(radius);
     this._ready = false;
     return this.n++;
   }
@@ -84,6 +85,7 @@ export class World {
     this.force = new Float64Array(3 * n);
     this.mass = Float64Array.from(this._mass);
     this.fixed = Uint8Array.from(this._fixed);
+    this.radius = Float64Array.from(this._radius);
     const nb = this.beams.length;
     this.beamEp = new Float64Array(nb);       // 소성 변형률 (부호 있음)
     this.beamAlpha = new Float64Array(nb);    // 누적 소성 변형률
@@ -130,11 +132,13 @@ export class World {
       let stress = mat.E * (eps - this.beamEp[b]);
       const t = Math.min(TABLE - 1e-9, this.beamAlpha[b] / mat.alphaStep);
       const t0 = Math.floor(t);
-      const sy = mat.flow[t0] + (mat.flow[t0 + 1] - mat.flow[t0]) * (t - t0);
+      // mat.compress(<1): 얇은 벽 부재(레일)는 압축에서 접히며 무너진다 → 압축 쪽 유동응력을 그만큼 낮춘다
+      const cf = stress < 0 ? mat.compress ?? 1 : 1;
+      const sy = cf * (mat.flow[t0] + (mat.flow[t0 + 1] - mat.flow[t0]) * (t - t0));
       const over = Math.abs(stress) - sy;
       // 압축으로는 COMPRESS_LOCK까지만 영구 변형 — 그 뒤로는 탄성으로 버틴다(더 못 눌림) → 눌리는 대신 옆으로 접힌다
       if (over > 0 && (stress > 0 || this.beamEp[b] > -COMPRESS_LOCK)) {
-        const H = (mat.flow[t0 + 1] - mat.flow[t0]) / mat.alphaStep;
+        const H = (cf * (mat.flow[t0 + 1] - mat.flow[t0])) / mat.alphaStep;
         const dg = over / (mat.E + H);
         const sign = stress > 0 ? 1 : -1;
         this.beamEp[b] += sign * dg;
@@ -204,16 +208,25 @@ export class World {
     for (const pl of this.planes) {
       const [nx, ny, nz] = pl.n;
       for (let a = 0; a < n; a += 1) {
-        const depth = pl.d - (pos[3 * a] * nx + pos[3 * a + 1] * ny + pos[3 * a + 2] * nz);
+        const depth = pl.d + this.radius[a] - (pos[3 * a] * nx + pos[3 * a + 1] * ny + pos[3 * a + 2] * nz);
         if (depth <= 0) continue;
         pos[3 * a] += depth * nx; pos[3 * a + 1] += depth * ny; pos[3 * a + 2] += depth * nz;
         const vn = vel[3 * a] * nx + vel[3 * a + 1] * ny + vel[3 * a + 2] * nz;
         if (vn >= 0) continue;
         let tx = vel[3 * a] - vn * nx, ty = vel[3 * a + 1] - vn * ny, tz = vel[3 * a + 2] - vn * nz;
         const vt = Math.hypot(tx, ty, tz);
-        const keep = vt > 1e-9 ? Math.max(0, 1 - (pl.friction * -vn) / vt) : 0;
+        const keep = this.radius[a] > 0 ? 1 : vt > 1e-9 ? Math.max(0, 1 - (pl.friction * -vn) / vt) : 0;
         const up = -pl.restitution * vn;
         vel[3 * a] = tx * keep + up * nx; vel[3 * a + 1] = ty * keep + up * ny; vel[3 * a + 2] = tz * keep + up * nz;
+      }
+      for (const sp of this.spheres) {   // 강체 구도 벽·바닥에 막힌다
+        const depth = pl.d + sp.radius - (sp.pos[0] * nx + sp.pos[1] * ny + sp.pos[2] * nz);
+        if (depth <= 0) continue;
+        sp.pos[0] += depth * nx; sp.pos[1] += depth * ny; sp.pos[2] += depth * nz;
+        const vn = sp.vel[0] * nx + sp.vel[1] * ny + sp.vel[2] * nz;
+        if (vn >= 0) continue;
+        const k = -(1 + pl.restitution) * vn, drag = 1 - Math.min(1, pl.friction * 0.2);
+        sp.vel[0] = (sp.vel[0] + k * nx) * drag; sp.vel[1] = (sp.vel[1] + k * ny) * drag; sp.vel[2] = (sp.vel[2] + k * nz) * drag;
       }
     }
 
@@ -287,7 +300,7 @@ export class World {
 }
 
 // 얇은 셸: nu×nv 사각 격자 + 양 대각선(면내 강성) + 굽힘 요소(u·v 방향 줄마다). point(iu, iv) → [x, y, z].
-// wrapU: u 방향을 한 바퀴 이어 붙인다(원통·차체). fixed(iu, iv): 고정 노드. extraMass: 구조가 아닌 질량(kg)을 노드에 고루 얹는다.
+// wrapU: u 방향을 한 바퀴 이어 붙인다(원통·차체). fixed(iu, iv): 고정 노드. extraMass: 구조가 아닌 질량 — 숫자면 전체 kg을 노드에 고루, 함수 (iu, iv) → kg이면 노드마다.
 // 빔 단면적은 격자의 면내 탄성계수가 재료의 E와 같아지도록 정한다 (가로 A1 = 3·폭·t/4, 대각 A1/√2 → ν = 1/3). 열린 가장자리 줄은 폭이 절반.
 // ponytail: 단면적 식은 정사각 칸 기준 — 칸이 길쭉하면 강성이 방향마다 조금 달라진다. 칸을 정사각에 가깝게 잡을 것.
 // 반환: { idx(iu, iv), nu, nv, wrapU, beamU(iu, iv), beamV(iu, iv), beamDiag(iu, iv) } (빔 번호 — 화면이 끊긴 칸을 지울 때 씀)
@@ -320,7 +333,7 @@ export function buildShell(world, { nu, nv, point, thickness, material, wrapU = 
   for (let iv = 0; iv < nv; iv += 1) {
     for (let iu = 0; iu < nu; iu += 1) {
       const p = at(iu, iv);
-      world.addNode(p[0], p[1], p[2], material.rho * SU(iu, iv) * SV(iu, iv) * t + extraMass / (nu * nv), fixed(iu, iv));
+      world.addNode(p[0], p[1], p[2], material.rho * SU(iu, iv) * SV(iu, iv) * t + (typeof extraMass === 'function' ? extraMass(iu, iv) : extraMass / (nu * nv)), fixed(iu, iv));
     }
   }
   const lastU = wrapU ? nu : nu - 1;   // u 방향 칸 수

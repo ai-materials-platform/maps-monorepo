@@ -120,6 +120,25 @@ test('same impact, different alloy: ductile steel dents and stops the ball, brit
   assert.ok(d.w.plasticWork > 2 * b.w.plasticWork);                              // 연성이 에너지를 더 흡수
 });
 
+test('a thin-walled member (compress < 1) yields early in compression only', () => {
+  const mat = { ...materialFromPrediction(MID), compress: 0.25 };
+  const pull = pullSingleBeam(mat, (u) => 0.01 * u), push = pullSingleBeam(mat, (u) => -0.01 * u);
+  const ref = pullSingleBeam(materialFromPrediction(MID), (u) => 0.01 * u).at(-1).stress;
+  assert.ok(Math.abs(pull.at(-1).stress / ref - 1) < 0.01, `tension ${pull.at(-1).stress / 1e6} vs ${ref / 1e6}`);          // 인장은 그대로
+  assert.ok(Math.abs(-push.at(-1).stress / ref - 0.25) < 0.02, `compression ${push.at(-1).stress / 1e6} vs ${ref / 1e6}`);  // 압축은 1/4
+});
+
+test('a wheel node rests on the ground at its radius and rolls without friction', () => {
+  const w = new World();
+  const hub = w.addNode(0, 0.35, 0, 20, false, 0.3);
+  w.addPlane([0, 1, 0], 0, 0.5);
+  w.init();
+  w.vel[3 * hub] = 10;
+  for (let k = 0; k < 20000; k += 1) w.step(1e-4);     // 2초
+  assert.ok(Math.abs(w.pos[3 * hub + 1] - 0.3) < 1e-3, `y ${w.pos[3 * hub + 1]}`);
+  assert.ok(Math.abs(w.vel[3 * hub] - 10) < 1e-6, `vx ${w.vel[3 * hub]}`);
+});
+
 // ── 시나리오(scenarios.js): 곡면 셸 + 벽 ──
 function crash(key, pred, speed, duration) {
   const sim = createSim(key, pred, speed);
