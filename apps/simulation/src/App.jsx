@@ -349,6 +349,33 @@ function fallbackPredict(composition, densityScale) {
   };
 }
 
+// 백엔드 /predict 응답 → 화면이 쓰는 예측 객체. 빠진 값은 기본값으로 채운다.
+function normalizeBackendPrediction(raw, nextComposition) {
+  // Backend returns camelCase. Merge with defaults so no field is undefined.
+  // Also handle nested predictions object (platform model format).
+  const preds = raw.predictions ?? null;
+  const normalized = {
+    ...DEFAULT_PREDICTION,
+    ...raw,
+    composition: raw.composition ?? nextComposition,
+    // Flat camelCase (local model) — already in raw via spread above.
+    // Nested platform model: extract .value from each prediction object.
+    ...(preds ? {
+      strengthMpa:          preds.uts_mpa?.value          ?? preds.utsMpa?.value          ?? raw.strengthMpa          ?? DEFAULT_PREDICTION.strengthMpa,
+      utsMpa:               preds.uts_mpa?.value          ?? preds.utsMpa?.value          ?? raw.utsMpa               ?? DEFAULT_PREDICTION.utsMpa,
+      yieldStressMpa:       preds.yield_stress_mpa?.value ?? preds.yieldStressMpa?.value  ?? raw.yieldStressMpa        ?? DEFAULT_PREDICTION.yieldStressMpa,
+      elongationPercent:    preds.elongation_pct?.value   ?? preds.elongation?.value      ?? raw.elongationPercent     ?? DEFAULT_PREDICTION.elongationPercent,
+      areaReductionPercent: preds.area_reduction_pct?.value ?? raw.areaReductionPercent   ?? DEFAULT_PREDICTION.areaReductionPercent,
+      elasticityGpa:        preds.elastic_modulus_gpa?.value ?? raw.elasticityGpa         ?? DEFAULT_PREDICTION.elasticityGpa,
+      predictionConfidence: preds.confidence?.value        ?? raw.predictionConfidence     ?? DEFAULT_PREDICTION.predictionConfidence,
+    } : {}),
+  };
+  // Ensure strengthMpa and utsMpa are always in sync
+  normalized.strengthMpa = normalized.strengthMpa ?? normalized.utsMpa ?? DEFAULT_PREDICTION.strengthMpa;
+  normalized.utsMpa      = normalized.utsMpa      ?? normalized.strengthMpa;
+  return normalized;
+}
+
 function firstNumber(source, keys, fallback) {
   for (const key of keys) {
     const value = source?.[key];
@@ -542,7 +569,10 @@ function App() {
   // 도형은 시편 고정 (구·정육면체·직육면체 UI 제거).
   // ponytail: DeformableShape/FracturedMesh의 비시편 분기는 아직 남아 있음 — 다시 안 쓰기로 확정되면 삭제.
   const shape = "specimen";
-  const [view, setView] = useState("specimen");   // 가운데 화면: "specimen"(시편 시험) | "crash"(충돌 시뮬)
+  const [view, setView] = useState("specimen");
+  const [crashExtras, setCrashExtras] = useState({});   // 충돌 시뮬 비교용: 같은 합금을 다른 시험 온도로 예측한 물성
+  const [crashTemp, setCrashTemp] = useState(700);
+  const [crashTempNote, setCrashTempNote] = useState("");   // 가운데 화면: "specimen"(시편 시험) | "crash"(충돌 시뮬)
   const [interactMode, setInteractMode] = useState("orbit");
   const orbitEnabledRef = useRef(true);
   const [resetKey, setResetKey] = useState(0);
@@ -603,7 +633,22 @@ function App() {
     const p = alloy.id === selectedAlloy.id ? prediction : alloy.prediction;
     return [alloy.id, { label: alloy.name, yieldStressMpa: p.yieldStressMpa ?? p.strengthMpa * 0.7, strengthMpa: p.strengthMpa,
       elongationPercent: p.elongationPercent, elasticityGpa: p.elasticityGpa, density: p.density }];
-  })), [alloys, selectedAlloy.id, prediction]);
+  }).concat(Object.entries(crashExtras))), [alloys, selectedAlloy.id, prediction, crashExtras]);
+
+  async function addCrashTemperature() {
+    setCrashTempNote("예측 중…");
+    try {
+      const raw = await postBackend("/predict", { composition, densityScale, model: simModel,
+        process: { ...toModelProcess(process), "Temperature (K)": crashTemp + 273.15 } });
+      const p = normalizeBackendPrediction(raw, composition);
+      setCrashExtras((items) => ({ ...items, [`${selectedAlloy.id}@${crashTemp}`]: { label: `${selectedAlloy.name} · ${crashTemp} °C`,
+        yieldStressMpa: p.yieldStressMpa ?? p.strengthMpa * 0.7, strengthMpa: p.strengthMpa, elongationPercent: p.elongationPercent,
+        elasticityGpa: p.elasticityGpa, density: p.density } }));
+      setCrashTempNote("비교 목록에 추가했습니다. 아래 '나란히 비교할 재료'에서 고르세요.");
+    } catch {
+      setCrashTempNote("예측 서버에 연결하지 못했습니다.");
+    }
+  }
 
   useEffect(() => {
     if (!selectedAlloy) return;
@@ -739,28 +784,7 @@ function App() {
         model: simModel,
       });
 
-      // Backend returns camelCase. Merge with defaults so no field is undefined.
-      // Also handle nested predictions object (platform model format).
-      const preds = raw.predictions ?? null;
-      const normalized = {
-        ...DEFAULT_PREDICTION,
-        ...raw,
-        composition: raw.composition ?? nextComposition,
-        // Flat camelCase (local model) — already in raw via spread above.
-        // Nested platform model: extract .value from each prediction object.
-        ...(preds ? {
-          strengthMpa:          preds.uts_mpa?.value          ?? preds.utsMpa?.value          ?? raw.strengthMpa          ?? DEFAULT_PREDICTION.strengthMpa,
-          utsMpa:               preds.uts_mpa?.value          ?? preds.utsMpa?.value          ?? raw.utsMpa               ?? DEFAULT_PREDICTION.utsMpa,
-          yieldStressMpa:       preds.yield_stress_mpa?.value ?? preds.yieldStressMpa?.value  ?? raw.yieldStressMpa        ?? DEFAULT_PREDICTION.yieldStressMpa,
-          elongationPercent:    preds.elongation_pct?.value   ?? preds.elongation?.value      ?? raw.elongationPercent     ?? DEFAULT_PREDICTION.elongationPercent,
-          areaReductionPercent: preds.area_reduction_pct?.value ?? raw.areaReductionPercent   ?? DEFAULT_PREDICTION.areaReductionPercent,
-          elasticityGpa:        preds.elastic_modulus_gpa?.value ?? raw.elasticityGpa         ?? DEFAULT_PREDICTION.elasticityGpa,
-          predictionConfidence: preds.confidence?.value        ?? raw.predictionConfidence     ?? DEFAULT_PREDICTION.predictionConfidence,
-        } : {}),
-      };
-      // Ensure strengthMpa and utsMpa are always in sync
-      normalized.strengthMpa = normalized.strengthMpa ?? normalized.utsMpa ?? DEFAULT_PREDICTION.strengthMpa;
-      normalized.utsMpa      = normalized.utsMpa      ?? normalized.strengthMpa;
+      const normalized = normalizeBackendPrediction(raw, nextComposition);
 
       setPrediction(normalized);
       setAlloys((items) =>
@@ -1442,8 +1466,17 @@ function App() {
           </div>
 
           {view === "crash" ? (
-            <div className="crash-host"><CrashLab embedded materials={crashMaterials} matKey={selectedAlloy.id}
-              compareHint="비교할 합금이 아직 없습니다. 왼쪽 목록에서 다른 합금을 고르고 '예측 실행'을 누르면 여기에 나옵니다." /></div>
+            <div className="crash-host">
+              <CrashLab embedded materials={crashMaterials} matKey={selectedAlloy.id}
+                compareHint="비교할 재료가 아직 없습니다. 위에서 다른 온도를 추가하거나, 왼쪽 목록에서 다른 합금을 고르고 '예측 실행'을 누르세요.">
+                <form className="sb-maps" onSubmit={(e) => { e.preventDefault(); addCrashTemperature(); }}>
+                  <label htmlFor="crash-temp">이 합금을 다른 시험 온도로 비교 (°C)</label>
+                  <input id="crash-temp" type="number" min="20" max="1000" step="10" value={crashTemp} onChange={(e) => setCrashTemp(Number(e.target.value))} />
+                  <button type="submit" className="sb-btn">이 온도의 예측 물성 추가</button>
+                  {crashTempNote && <p className="sb-note" role="status">{crashTempNote}</p>}
+                </form>
+              </CrashLab>
+            </div>
           ) : (
           <div className={`viewport-stage${interactMode === "deform" ? " deform-active" : ""}`}>
             <Canvas gl={{ preserveDrawingBuffer: true, antialias: true }} camera={{ position: [0, 0.2, 8.5], fov: 36, near: 0.1, far: 200 }} dpr={[1, 2]}>

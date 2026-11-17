@@ -1,7 +1,9 @@
 // 충돌 시나리오: 예측 물성(pred)과 속도로 World를 꾸민다 (three.js 없음 — node에서도 돈다).
-// build(pred, speed) → { world, shells, mat, measure() → { speed, deformMm, done } } · duration(speed): 보여 줄 시뮬 시간(초)
+// build(pred, speed, opts) — opts.rate: 변형 속도 효과 켜기 → { world, shells, mat, measure() → { speed, deformMm, done } } · duration(speed): 보여 줄 시뮬 시간(초)
 import { World, materialFromPrediction, plateMaterial, buildPlate, buildShell } from './nodebeam.js';
 
+// 변형 속도 효과(선택): 강의 대변형 유동응력에 흔히 쓰는 Cowper–Symonds 상수 (Abramowicz–Jones). MAPS 예측값이 아니라 문헌 가정값이다.
+export const RATE = { D: 6844, p: 3.91 };
 const lerp = (a, b, t) => a + (b - a) * t;
 // 꺾은선 보간: pts = [[x, y], ...] (x 오름차순)
 function profile(pts, x) {
@@ -49,9 +51,9 @@ export const SCENARIOS = {
     note: '네 변을 고정한 400×400×2 mm 판에 지름 80 mm · 1 kg 강체 구를 쏩니다.',
     speedLabel: '구 속도', speed: { min: 10, max: 300, step: 5, initial: 80 }, slow: 500, deformLabel: '최대 처짐',
     duration: (speed) => 0.2 / speed + 0.008,
-    build(pred, speed) {
+    build(pred, speed, opts = {}) {
       const world = new World({ gravity: [0, 0, 0] });
-      const mat = plateMaterial(pred);
+      const mat = { ...plateMaterial(pred), rate: opts.rate ? RATE : null };
       const plate = buildPlate(world, { ...PLATE, material: mat });
       world.addSphere([0.003, 0.004, BALL.startZ], [0, 0, -speed], BALL.radius, BALL.mass);
       world.init();
@@ -70,9 +72,9 @@ export const SCENARIOS = {
     note: '지름 300 mm · 길이 1.6 m · 두께 2 mm 동체(탑재물 20 kg)가 단단한 벽에 머리부터 부딪힙니다.',
     speedLabel: '충돌 속도', speed: { min: 20, max: 300, step: 10, initial: 120 }, slow: 300, deformLabel: '찌그러진 길이',
     duration: (speed) => 2.4 / speed,
-    build(pred, speed) {
+    build(pred, speed, opts = {}) {
       const R = ROCKET, world = new World({ gravity: [0, 0, 0] });
-      const mat = plateMaterial(pred);
+      const mat = { ...plateMaterial(pred), rate: opts.rate ? RATE : null };
       const nu = 24, a = (2 * Math.PI * R.radius) / nu;
       const nBody = Math.round(R.body / a), nNose = Math.round(R.nose / a), nv = nBody + nNose + 1;
       const length = (nv - 1) * a, x0 = R.wallX - R.gap - length;
@@ -99,9 +101,10 @@ export const SCENARIOS = {
     duration: (speed) => 2.2 / speed,
     // ponytail: 격자 한 칸이 10 cm라 얇은 부재가 접히는 걸 직접 못 푼다 — 레일은 압축 접힘 계수(compress)로 대신한다.
     // ponytail: 엔진은 묶여 있지 않은 강체 구, 바퀴는 구르기만 하는 노드(회전·조향·서스펜션 없음). 필요하면 강체+조인트로.
-    build(pred, speed, offset = false) {
+    build(pred, speed, opts = {}) {
       const C = CAR, world = new World({ gravity: [0, -9.81, 0] });
-      const mat = { ...plateMaterial(pred), compress: C.panelCompress };
+      const rate = opts.rate ? RATE : null, offset = !!opts.offset;
+      const mat = { ...plateMaterial(pred), compress: C.panelCompress, rate };
       const nTop = 18, nSide = 10, nu = 2 * (nTop + nSide), a = (2 * C.halfWidth) / nTop;
       const nv = Math.round(C.length / a) + 1, x0 = C.wallX - C.gap - C.length;
       const relX = (iv) => iv * a - C.length / 2;                         // 차 중심 기준 앞뒤 위치
@@ -122,7 +125,7 @@ export const SCENARIOS = {
       const bottom = (k, iv) => shell.idx(nTop + nSide + k, iv);          // 바닥 줄: k = 0(오른쪽 모서리) … nTop(왼쪽 모서리)
 
       // 바닥 레일 2개: 차 길이 방향 상자 단면. 셸 바닥 노드를 그대로 쓰고 빔·굽힘을 덧댄다.
-      const frame = { ...materialFromPrediction(pred), compress: C.rail.compress };
+      const frame = { ...materialFromPrediction(pred), compress: C.rail.compress, rate };
       const sigma = 0.5 * (frame.yield + frame.uts);
       for (const k of C.rail.lines) {
         const beams = [];
@@ -163,10 +166,10 @@ export const SCENARIOS = {
 };
 SCENARIOS.carOffset = { ...SCENARIOS.car, label: '차량 부분 정면',
   note: '같은 차량이 폭의 40%만 가리는 벽에 부딪힙니다. 벽에 걸린 쪽만 찌그러지고 차가 돌아갑니다.',
-  build: (pred, speed) => SCENARIOS.car.build(pred, speed, true) };
+  build: (pred, speed, opts = {}) => SCENARIOS.car.build(pred, speed, { ...opts, offset: true }) };
 
-export function createSim(key, pred, speed) {
-  const sim = SCENARIOS[key].build(pred, speed);
+export function createSim(key, pred, speed, opts = {}) {
+  const sim = SCENARIOS[key].build(pred, speed, opts);
   // 노드마다 붙은 빔 목록 (색칠용)
   const incident = Array.from({ length: sim.world.n }, () => []);
   sim.world.beams.forEach((b, q) => { incident[b.i].push(q); incident[b.j].push(q); });

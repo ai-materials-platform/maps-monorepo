@@ -139,7 +139,12 @@ export class World {
       const t = Math.min(TABLE - 1e-9, this.beamAlpha[b] / mat.alphaStep);
       const t0 = Math.floor(t);
       // mat.compress(<1): 얇은 벽 부재(레일)는 압축에서 접히며 무너진다 → 압축 쪽 유동응력을 그만큼 낮춘다
-      const cf = stress < 0 ? mat.compress ?? 1 : 1;
+      let cf = stress < 0 ? mat.compress ?? 1 : 1;
+      // mat.rate = { D, p } (선택): 빨리 변형될수록 강해진다 — Cowper–Symonds, 유동응력 × (1 + (변형속도/D)^(1/p))
+      if (mat.rate) {
+        const rv = ((vel[3 * j] - vel[3 * i]) * dx + (vel[3 * j + 1] - vel[3 * i + 1]) * dy + (vel[3 * j + 2] - vel[3 * i + 2]) * dz) / (L * L0);
+        cf *= 1 + Math.pow(Math.abs(rv) / mat.rate.D, 1 / mat.rate.p);
+      }
       const sy = cf * (mat.flow[t0] + (mat.flow[t0 + 1] - mat.flow[t0]) * (t - t0));
       const over = Math.abs(stress) - sy;
       // 압축으로는 COMPRESS_LOCK까지만 영구 변형 — 그 뒤로는 탄성으로 버틴다(더 못 눌림) → 눌리는 대신 옆으로 접힌다
@@ -252,7 +257,8 @@ export class World {
   }
 
   // 자기 접촉: 처음에 2·contactDist 넘게 떨어져 있던 노드 쌍이 contactDist 안으로 들어오면 밀어내고 다가오는 속도를 없앤다(비탄성).
-  // ponytail: 노드-노드(구슬끼리) 접촉이라 면 사이로 노드가 빠져나갈 수 있다 — 접힌 더미에 두께를 주는 용도. 정확히 하려면 노드-삼각형.
+  // 노드-노드(구슬끼리) 접촉. contactDist = 0.8칸이면 구슬이 삼각형 면 전체를 덮는다(면에서 가장 먼 점이 꼭짓점에서 0.71칸)
+  // → 면이 크게 늘어나지 않는 한 노드가 면을 뚫지 못한다. 노드-삼각형 접촉을 따로 넣어 봤지만 결과가 같고 2배 느려서 뺐다.
   _selfContact() {
     const n = this.n, { pos, vel, mass, fixed, rest } = this, dc = this.contactDist, inv = 1 / dc, MASK = 8191;
     if (!this._cell) { this._cell = new Int32Array(n); this._start = new Int32Array(MASK + 2); this._order = new Int32Array(n); }

@@ -41,6 +41,9 @@
   color: var(--maps-text); font: inherit; font-size: 12px; cursor: pointer; }
 .sb-mini:disabled { opacity: 0.5; cursor: default; }
 .sb-mini:focus-visible { outline: 2px solid var(--maps-primary-text); outline-offset: 2px; }
+.sb-check { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.sb-check input { margin-top: 3px; accent-color: var(--maps-primary); }
+.sb-check small { display: block; color: var(--maps-text-muted); }
 .sb-actions { display: flex; gap: 8px; }
 .sb-btn { flex: 1; padding: 9px 10px; border-radius: var(--maps-radius-sm); border: 1px solid var(--maps-border);
   background: var(--maps-panel-muted); color: var(--maps-text); font: inherit; font-weight: 700; cursor: pointer; }
