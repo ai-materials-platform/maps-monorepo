@@ -24,7 +24,7 @@
 .sb-compare select:focus-visible { outline: 2px solid var(--maps-primary-text); outline-offset: 1px; }
 .sb-preset small { display: block; color: var(--maps-text-muted); font-weight: 400; font-family: var(--maps-font-mono), monospace; }
 
-.sb-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.sb-tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 .sb-tabs .sb-preset { text-align: center; padding: 8px 4px; }
 .sb-maps { display: grid; gap: 6px; margin-top: 10px; }
 .sb-maps label { color: var(--maps-text-secondary); }
@@ -37,6 +37,10 @@
 .sb-field output { font-family: var(--maps-font-mono), monospace; font-variant-numeric: tabular-nums; }
 .sb-field input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--maps-primary); }
 
+.sb-mini { padding: 3px 8px; border-radius: var(--maps-radius-sm); border: 1px solid var(--maps-border); background: var(--maps-panel-muted);
+  color: var(--maps-text); font: inherit; font-size: 12px; cursor: pointer; }
+.sb-mini:disabled { opacity: 0.5; cursor: default; }
+.sb-mini:focus-visible { outline: 2px solid var(--maps-primary-text); outline-offset: 2px; }
 .sb-actions { display: flex; gap: 8px; }
 .sb-btn { flex: 1; padding: 9px 10px; border-radius: var(--maps-radius-sm); border: 1px solid var(--maps-border);
   background: var(--maps-panel-muted); color: var(--maps-text); font: inherit; font-weight: 700; cursor: pointer; }

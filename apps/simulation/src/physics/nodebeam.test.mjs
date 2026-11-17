@@ -163,6 +163,16 @@ test('rocket body into a wall: ductile steel crumples in one piece, brittle allo
   assert.ok(d.sim.world.plasticWork > 0.5 * d.sim.ke0);            // 운동에너지 대부분이 소성 변형으로
 });
 
+test('offset car crash never absorbs more energy than the car had', () => {
+  const { sim, m } = crash('carOffset', DUCTILE, 15, 0.1);
+  const w = sim.world;
+  assert.ok(w.plasticWork + w.kineticEnergy() < 1.02 * sim.ke0, `plastic ${w.plasticWork} + KE ${w.kineticEnergy()} vs ${sim.ke0}`);
+  assert.ok(m.deformMm > 300, `crush ${m.deformMm}`);                 // 걸린 쪽이 더 깊이 찌그러진다
+  let vz = 0;
+  for (let a = 0; a < w.n; a += 1) vz += w.mass[a] * w.vel[3 * a + 2];
+  assert.ok(vz < 0, `sideways momentum ${vz}`);                        // 벽(+z 쪽)에서 밀려나는 방향으로 돈다
+});
+
 test('car into a wall at 54 km/h stops with a plausible crush length', () => {
   const { m, sim } = crash('car', MID, 15, 0.12);
   assert.ok(m.done, `still moving at ${m.speed} m/s`);

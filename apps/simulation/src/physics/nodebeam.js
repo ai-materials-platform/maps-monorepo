@@ -70,8 +70,10 @@ export class World {
   }
 
   // 움직이지 않는 평면. normal(단위 벡터) 쪽이 열린 공간, offset = normal·(평면 위의 점)
-  addPlane(normal, offset, friction = 0.3, restitution = 0) {
-    this.planes.push({ n: [...normal], d: offset, friction, restitution });
+  // bound = { axis, min, max }: 그 좌표 범위만 차지하는 벽 (차 폭의 일부만 가린다). 범위 끝에는 옆면이 있어서,
+  // 벽 옆을 지나친 노드가 벽 속으로 들어오면 앞면이 아니라 가까운 옆면으로 밀려 나온다.
+  addPlane(normal, offset, friction = 0.3, restitution = 0, bound = null) {
+    this.planes.push({ n: [...normal], d: offset, friction, restitution, bound });
   }
 
   addSphere(pos, vel, radius, mass) {
@@ -213,9 +215,18 @@ export class World {
     // 벽·바닥: 파고든 노드를 면 위로 되돌리고 법선 속도를 없앤다(비탄성) + 쿨롱 마찰
     for (const pl of this.planes) {
       const [nx, ny, nz] = pl.n;
+      const inside = (p, o, r = 0) => !pl.bound || (p[o + pl.bound.axis] + r >= pl.bound.min && p[o + pl.bound.axis] - r <= pl.bound.max);
       for (let a = 0; a < n; a += 1) {
+        if (!inside(pos, 3 * a)) continue;
         const depth = pl.d + this.radius[a] - (pos[3 * a] * nx + pos[3 * a + 1] * ny + pos[3 * a + 2] * nz);
         if (depth <= 0) continue;
+        if (pl.bound) {
+          const c = 3 * a + pl.bound.axis, toMin = pos[c] - pl.bound.min, toMax = pl.bound.max - pos[c];
+          if (Math.min(toMin, toMax) < depth) {                 // 옆면이 더 가깝다 → 옆으로 밀어내고 벽 속으로 향하는 속도만 없앤다
+            if (toMin < toMax) { pos[c] = pl.bound.min; vel[c] = Math.min(0, vel[c]); } else { pos[c] = pl.bound.max; vel[c] = Math.max(0, vel[c]); }
+            continue;
+          }
+        }
         pos[3 * a] += depth * nx; pos[3 * a + 1] += depth * ny; pos[3 * a + 2] += depth * nz;
         const vn = vel[3 * a] * nx + vel[3 * a + 1] * ny + vel[3 * a + 2] * nz;
         if (vn >= 0) continue;
@@ -227,7 +238,7 @@ export class World {
       }
       for (const sp of this.spheres) {   // 강체 구도 벽·바닥에 막힌다
         const depth = pl.d + sp.radius - (sp.pos[0] * nx + sp.pos[1] * ny + sp.pos[2] * nz);
-        if (depth <= 0) continue;
+        if (depth <= 0 || depth > sp.radius || !inside(sp.pos, 0, sp.radius)) continue;   // 깊이 들어간 구는 옆으로 지나친 것
         sp.pos[0] += depth * nx; sp.pos[1] += depth * ny; sp.pos[2] += depth * nz;
         const vn = sp.vel[0] * nx + sp.vel[1] * ny + sp.vel[2] * nz;
         if (vn >= 0) continue;
