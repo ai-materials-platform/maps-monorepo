@@ -51,7 +51,7 @@ function verdictOf(scenario, stats) {
 
 // 3D 화면 하나 = 워커 하나. shot.n이 바뀌면 다시 준비하고, shot.running이면 바로 달린다.
 // camSync: 비교 화면끼리 시점을 맞추는 공유 객체 { v, pos, target, src }
-function CrashViewport({ scenario, pred, speed, slow, shot, label, camSync, scrub }) {
+function CrashViewport({ scenario, pred, speed, slow, shot, label, camSync, scrub, rate }) {
   const mountRef = useRef(null);
   const apiRef = useRef(null);       // { worker, show(scenario) }
   const idRef = useRef(0);
@@ -162,10 +162,10 @@ function CrashViewport({ scenario, pred, speed, slow, shot, label, camSync, scru
     api.show(scenario);
     idRef.current += 1;
     historyRef.current = [];
-    api.worker.postMessage({ type: "init", id: idRef.current, key: scenario, pred, speed });
+    api.worker.postMessage({ type: "init", id: idRef.current, key: scenario, pred, speed, rate });
     if (shot.running && shot.n !== firedRef.current) api.worker.postMessage({ type: "run" });
     firedRef.current = shot.n;
-  }, [scenario, predKey, speed, shot]);
+  }, [scenario, predKey, speed, shot, rate]);
 
   // 다시 보기: scrub(0~1) 위치의 장면을 보여 준다. null이면 실시간.
   useEffect(() => {
@@ -215,13 +215,14 @@ export default function CrashLab({ materials, matKey: fixedKey, embedded = false
   const camSync = useRef({ v: 0 });
   const [scrub, setScrub] = useState(null);      // 다시 보기 위치 0~1, null = 실시간
   const [replaying, setReplaying] = useState(false);
+  const [rate, setRate] = useState(false);       // 변형 속도 효과 (문헌 가정값) 켜기
   const sc = SCENARIOS[scenario];
   const keyA = fixedKey ?? (materials[pickedKey] ? pickedKey : Object.keys(materials)[0]);
   const keyB = compareKey && compareKey !== keyA && materials[compareKey] ? compareKey : "";
   const views = [["a", keyA], ...(keyB ? [["b", keyB]] : [])];
 
   // 조건이 바뀌거나 새로 쏘면 다시 보기를 끝낸다
-  useEffect(() => { setScrub(null); setReplaying(false); }, [scenario, keyA, keyB, speed, shot]);
+  useEffect(() => { setScrub(null); setReplaying(false); }, [scenario, keyA, keyB, speed, shot, rate]);
   // 다시 보기 재생: 6초에 걸쳐 처음부터 끝까지
   useEffect(() => {
     if (!replaying) return undefined;
@@ -281,6 +282,10 @@ export default function CrashLab({ materials, matKey: fixedKey, embedded = false
           <label htmlFor="sb-slow">슬로모션</label><output>1/{slow}배속</output>
           <input id="sb-slow" type="range" min="10" max="3000" step="10" value={slow} onChange={(e) => setSlow(Number(e.target.value))} />
         </section>
+        <label className="sb-check">
+          <input type="checkbox" checked={rate} onChange={(e) => setRate(e.target.checked)} />
+          <span>변형 속도 효과 넣기<small>빨리 변형될수록 강해지는 효과. MAPS 예측값이 아니라 일반 강의 문헌 상수를 씁니다.</small></span>
+        </label>
         <div className="sb-actions">
           <button type="button" className="sb-btn primary" onClick={() => setShot((s) => ({ n: s.n + 1, running: true }))}>발사</button>
           <button type="button" className="sb-btn" onClick={() => setShot((s) => ({ n: s.n + 1, running: false }))}>초기화</button>
@@ -296,7 +301,7 @@ export default function CrashLab({ materials, matKey: fixedKey, embedded = false
       </aside>
       <div className="sb-views">
         {views.map(([id, key]) => (
-          <CrashViewport key={id} scenario={scenario} pred={materials[key]} speed={speed} slow={slow} shot={shot} label={materials[key].label} camSync={camSync} scrub={scrub} />
+          <CrashViewport key={id} scenario={scenario} pred={materials[key]} speed={speed} slow={slow} shot={shot} label={materials[key].label} camSync={camSync} scrub={scrub} rate={rate} />
         ))}
       </div>
     </div>

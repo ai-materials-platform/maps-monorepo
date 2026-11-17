@@ -1,5 +1,5 @@
 // 충돌 물리를 화면과 다른 스레드에서 돌린다 — 화면(CrashLab.jsx)은 그리기만 한다.
-// 받는 메시지: { type: 'init', key, pred, speed } (발사 전 상태로 준비) · { type: 'run' } · { type: 'slow', slow }
+// 받는 메시지: { type: 'init', key, pred, speed, rate } (발사 전 상태로 준비) · { type: 'run' } · { type: 'slow', slow }
 // 보내는 메시지: { type: 'frame', id, positions, colors, index?, spheres, wheels, wheelRadius, debris, durationMs, stats, decel?, finished }
 import { SCENARIOS, createSim } from './scenarios.js';
 
@@ -89,7 +89,7 @@ self.onmessage = ({ data }) => {
   } else if (data.type === 'init') {
     clearTimeout(timer);
     running = false;
-    sim = createSim(data.key, data.pred, data.speed);
+    sim = createSim(data.key, data.pred, data.speed, { rate: data.rate });
     sim.duration = SCENARIOS[data.key].duration(data.speed);
     sim.speeds = [];
     simId = data.id;

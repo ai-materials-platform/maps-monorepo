@@ -147,6 +147,20 @@ test('a wheel node rests on the ground at its radius and rolls without friction'
   assert.ok(Math.abs(w.vel[3 * hub] - 10) < 1e-6, `vx ${w.vel[3 * hub]}`);
 });
 
+test('strain-rate option (off by default) makes fast loading stronger', () => {
+  const fast = (mat) => {   // 변형 속도 1000 /s로 당긴다
+    const w = new World({ gravity: [0, 0, 0] });
+    const a = w.addNode(0, 0, 0, 1, true), b = w.addNode(0.02, 0, 0, 1, true);
+    w.addBeam(a, b, 1e-5, mat);
+    w.init();
+    w.vel[3] = 20;
+    for (let k = 0; k < 1000; k += 1) w.step(2e-8);       // 변형률 2%
+    return w.beamStress[0];                               // 감쇠력을 뺀 재료 응력
+  };
+  const base = fast(materialFromPrediction(MID)), rated = fast({ ...materialFromPrediction(MID), rate: { D: 6844, p: 3.91 } });
+  assert.ok(Math.abs(rated / base - (1 + (1000 / 6844) ** (1 / 3.91))) < 0.03, `ratio ${rated / base}`);   // ≈ 1.61
+});
+
 // ── 시나리오(scenarios.js): 곡면 셸 + 벽 ──
 function crash(key, pred, speed, duration) {
   const sim = createSim(key, pred, speed);
