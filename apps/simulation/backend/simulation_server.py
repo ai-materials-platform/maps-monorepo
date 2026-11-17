@@ -324,6 +324,35 @@ def build_platform_input(raw_composition, process=None):
     return platform_input
 
 
+MODEL_ELEMENTS = [
+    "Fe", "Cr", "Ni", "Mo", "Mn", "Si", "Nb", "Ti", "Zr", "Ta", "V", "W",
+    "Cu", "N", "C", "B", "P", "S", "Co", "Al", "Sn", "Pb",
+]
+RANGE_CHECK_KEYS = MODEL_ELEMENTS + ["Temperature (K)", "Solution_treatment_temperature"]
+
+
+def training_ranges(data_engine):
+    """학습 데이터에서 입력별 (최소, 최대). 데이터가 엔진에 없으면 빈 dict."""
+    df = getattr(data_engine, "df", None)
+    if df is None:
+        return {}
+    return {key: (float(df[key].min()), float(df[key].max())) for key in RANGE_CHECK_KEYS if key in df.columns}
+
+
+def find_out_of_range(platform_input, ranges, tolerance=0.02):
+    """학습 범위를 벗어난 입력 목록. 범위 폭의 2%(tolerance)까지는 봐준다.
+
+    랜덤 포레스트는 범위 밖에서 가장 가까운 학습 값으로 눌러 예측하므로, 범위 밖 조성은 숫자가 나와도 믿을 수 없다.
+    """
+    out = []
+    for key, (lo, hi) in ranges.items():
+        value = float(platform_input.get(key, 0) or 0)
+        slack = (hi - lo) * tolerance
+        if value < lo - slack or value > hi + slack:
+            out.append({"key": key, "value": round(value, 3), "min": round(lo, 3), "max": round(hi, 3)})
+    return out
+
+
 def run_platform_prediction(raw_composition, process=None):
     bundle = load_platform_model()
     data_engine = bundle["dataEngine"]
@@ -347,6 +376,11 @@ def run_platform_prediction(raw_composition, process=None):
         },
         "input": platform_input,
         "model": platform_status(),
+        # 학습 범위 밖 입력, 그리고 모델이 아예 모르는(입력에 없는) 원소
+        "outOfRange": find_out_of_range(platform_input, training_ranges(data_engine)),
+        "unknownElements": sorted(
+            el for el, value in raw_composition.items() if el not in MODEL_ELEMENTS and float(value or 0) > 0
+        ),
     }
     return result
 
@@ -387,6 +421,8 @@ def platform_prediction_to_sim_prediction(raw_composition, density_scale, platfo
         "predictionConfidence": round(confidence, 1),
         "latticeStability": round(stability, 1),
         "platformPrediction": platform_prediction,
+        "outOfRange": platform_prediction.get("outOfRange", []),
+        "unknownElements": platform_prediction.get("unknownElements", []),
         "predictionSource": "ai-materials-discovery-platform pretrained RF model",
     }
 

@@ -57,35 +57,39 @@ const TESTS = [
   { id: "temperature",label: "온도",   icon: Thermometer,  specimenOnly: false }
 ];
 
+// 기본 합금: 사전학습 모델의 학습 범위(오스테나이트계 스테인리스, Cr 16~21 · Ni 8.4~34 wt%) 안의 강종.
+// 범위 밖 조성은 숫자가 나와도 믿을 수 없다 — 예측 결과에 경고가 뜬다(outOfRange).
 const PRESETS = [
   {
-    id: "alloy-ni-ti-cr",
-    name: "Ni-Ti-Cr 고강도 합금",
-    category: "내열/고강도",
-    composition: { Ni: 42, Ti: 31, Cr: 27 },
+    id: "alloy-sts304",
+    name: "STS 304 (18Cr-9Ni)",
+    category: "범용 오스테나이트계",
+    composition: { Fe: 70.4, Cr: 18.2, Ni: 9.5, Mn: 1.4, Si: 0.5 },
     densityScale: 0.62,
     color: "#00D1FF"
   },
   {
-    id: "alloy-al-mg-si",
-    name: "Al-Mg-Si 경량 합금",
-    category: "경량/연성",
-    composition: { Al: 61, Mg: 24, Si: 15 },
-    densityScale: 0.34,
+    id: "alloy-sts316",
+    name: "STS 316 (Mo 첨가)",
+    category: "내식 · 고온강도",
+    composition: { Fe: 66.6, Cr: 17.0, Ni: 12.0, Mo: 2.4, Mn: 1.5, Si: 0.5 },
+    densityScale: 0.66,
     color: "#3DFFB5"
   },
   {
-    id: "alloy-fe-cr-ni",
-    name: "Fe-Cr-Ni 내열 합금",
-    category: "내식/내열",
-    composition: { Fe: 52, Cr: 26, Ni: 22 },
-    densityScale: 0.74,
+    id: "alloy-sts321",
+    name: "STS 321 (Ti 안정화)",
+    category: "내열 · 입계부식 저항",
+    composition: { Fe: 69.2, Cr: 17.8, Ni: 10.5, Ti: 0.45, Mn: 1.5, Si: 0.55 },
+    densityScale: 0.62,
     color: "#FFB020"
   }
 ];
 
+const RANGE_LABELS = { "Temperature (K)": "시험 온도(K)", "Solution_treatment_temperature": "용체화 온도(K)" };
+
 const DEFAULT_PREDICTION = {
-  composition: { Ni: 42, Ti: 31, Cr: 27 },
+  composition: { Fe: 70.4, Cr: 18.2, Ni: 9.5, Mn: 1.4, Si: 0.5 },
   density: 7.42,
   strengthMpa: 1220.4,
   yieldStressMpa: 830.0,
@@ -1634,6 +1638,18 @@ function App() {
             <Metric label="연신율" value={`${prediction.elongationPercent != null ? prediction.elongationPercent : "-"} %`} />
             <Metric label="단면 수축률" value={`${prediction.areaReductionPercent != null ? prediction.areaReductionPercent : "-"} %`} />
           </div>
+          {(prediction.outOfRange?.length > 0 || prediction.unknownElements?.length > 0) && (
+            <div className="range-warning" role="alert">
+              <strong>학습 범위 밖 입력 — 이 예측값은 믿기 어렵습니다</strong>
+              <ul>
+                {(prediction.outOfRange ?? []).map((item) => (
+                  <li key={item.key}>{RANGE_LABELS[item.key] ?? item.key} {item.value} (학습 데이터 {item.min}~{item.max})</li>
+                ))}
+                {prediction.unknownElements?.length > 0 && <li>모델에 없는 원소: {prediction.unknownElements.join(", ")} (예측에 반영되지 않음)</li>}
+              </ul>
+              <span>모델은 오스테나이트계 스테인리스강 데이터로 학습했습니다.</span>
+            </div>
+          )}
 
           <section className="analytics-card">
             <SectionTitle icon={Layers3} title="상 · 결정구조 (Schaeffler)" />
