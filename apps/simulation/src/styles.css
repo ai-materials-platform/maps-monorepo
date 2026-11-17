@@ -150,6 +150,11 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   gap: 6px;
 }
 
+/* 충돌 시뮬 보기: 도구줄 한 줄 + 충돌 화면만 */
+.viewport-panel.crash-view { grid-template-rows: 36px minmax(0, 1fr); }
+.viewport-panel.crash-view > :not(:first-child):not(.crash-host) { display: none; }
+.crash-host { min-height: 0; min-width: 0; }
+
 /* ── Panel internals ── */
 .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 
