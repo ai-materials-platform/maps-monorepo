@@ -6,10 +6,13 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { SCENARIOS, PLATE, ROCKET, CAR } from "./scenarios.js";
 import "./crash.css";
 
+const DEBRIS_SIZE = { plate: 0.012, rocket: 0.03, car: 0.07, carOffset: 0.07 };   // 파편 점 크기(m) ≈ 격자 한 칸
+const HISTORY = 240;   // 다시 보기용으로 남기는 장면 수
 const CAMERA = {
   plate:  { pos: [0.55, 0.28, 0.5], target: [0, 0, -0.03] },
   rocket: { pos: [-0.2, 0.9, 2.4], target: [0.2, 0, 0] },
   car:    { pos: [-1.2, 2.6, 7.0], target: [0.6, 0.6, 0] },
+  carOffset: { pos: [-2.6, 5.2, 5.2], target: [0.9, 0.3, 0] },
 };
 
 // 시나리오별 배경 소품 (물리와 무관): 판 고정 틀 / 벽 / 바닥
@@ -20,9 +23,11 @@ function buildDecor(key) {
       new THREE.LineBasicMaterial({ color: 0x94a3b8 })));
   } else {
     const [wallX, size, floorY] = key === "rocket" ? [ROCKET.wallX, 1.2, null] : [CAR.wallX, 4, 0];
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(size * 0.05, size, size * 1.4),
+    const half = key === "carOffset";                           // 부분 정면: 벽이 z ≥ offsetZ 쪽만 가린다
+    const depth = half ? 2.4 : size * 1.4, height = half ? 1.6 : size;
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(size * 0.05, height, depth),
       new THREE.MeshStandardMaterial({ color: 0x475569, transparent: true, opacity: 0.55, roughness: 0.9 }));
-    wall.position.set(wallX + size * 0.025, floorY === null ? 0 : size / 2, 0);
+    wall.position.set(wallX + size * 0.025, floorY === null ? 0 : height / 2, half ? CAR.offsetZ + depth / 2 : 0);
     g.add(wall);
     if (floorY !== null) {
       const grid = new THREE.GridHelper(14, 28, 0x475569, 0x1e293b);
@@ -40,17 +45,20 @@ function verdictOf(scenario, stats) {
     if (stats.through) return `관통 — 구가 ${stats.speed.toFixed(0)} m/s로 빠져나감`;
     return stats.done ? `막아냄 — ${mm} mm 움푹 들어감` : "충돌 중…";
   }
-  if (!stats.done) return "충돌 중…";
+  if (!stats.done) return stats.finished ? `멈추지 않고 벽을 스쳐 지나감 — ${mm} mm 찌그러짐` : "충돌 중…";
   return stats.broken > 0.02 * stats.total ? `부서짐 — 빔 ${stats.broken}개 파단, ${mm} mm 찌그러짐` : `찌그러지며 멈춤 — ${mm} mm`;
 }
 
 // 3D 화면 하나 = 워커 하나. shot.n이 바뀌면 다시 준비하고, shot.running이면 바로 달린다.
 // camSync: 비교 화면끼리 시점을 맞추는 공유 객체 { v, pos, target, src }
-function CrashViewport({ scenario, pred, speed, slow, shot, label, camSync }) {
+function CrashViewport({ scenario, pred, speed, slow, shot, label, camSync, scrub }) {
   const mountRef = useRef(null);
   const apiRef = useRef(null);       // { worker, show(scenario) }
   const idRef = useRef(0);
   const firedRef = useRef(0);
+  const historyRef = useRef([]);     // 다시 보기: 일정 시간 간격으로 남긴 장면들
+  const scrubRef = useRef(scrub);
+  scrubRef.current = scrub;
   const [stats, setStats] = useState(null);
   const [decel, setDecel] = useState(null);
   // 부모가 같은 값의 새 객체를 넘겨도 다시 준비하지 않도록 값으로 비교한다
@@ -80,25 +88,37 @@ function CrashViewport({ scenario, pred, speed, slow, shot, label, camSync }) {
     const pool = (make) => { const list = []; return (count) => { while (list.length < count) { const m = make(); scene.add(m); list.push(m); } list.forEach((m, i) => { m.visible = i < count; }); return list; }; };
     const sphereMeshes = pool(() => new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.2, roughness: 0.35 })));
     const wheelMeshes = pool(() => { const m = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.6, 28), new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.8 })); m.rotation.x = Math.PI / 2; return m; });
-    let decor = null, shown = null, seenCam = 0;
+    const debris = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0xff6b5e, size: 0.05 }));
+    debris.frustumCulled = false;
+    scene.add(debris);
+    let decor = null, shown = null, seenCam = 0, lastIndex = null;
 
     const worker = new Worker(new URL("./crash-worker.js", import.meta.url), { type: "module" });
-    worker.onmessage = ({ data }) => {
-      if (data.id !== idRef.current) return;                    // 이전 설정의 늦은 프레임
+    // 장면 하나를 화면에 올린다 (실시간 프레임과 다시 보기 장면이 같이 쓴다)
+    function show(data, index) {
       for (const [name, arr] of [["position", data.positions], ["color", data.colors]]) {
         const attr = geo.getAttribute(name);
         if (attr && attr.array.length === arr.length) { attr.array.set(arr); attr.needsUpdate = true; }
-        else geo.setAttribute(name, new THREE.BufferAttribute(arr, 3));
+        else geo.setAttribute(name, new THREE.BufferAttribute(arr.slice(), 3));
       }
-      if (data.index) geo.setIndex(new THREE.BufferAttribute(data.index, 1));
+      if (index && geo.getIndex()?.array !== index) geo.setIndex(new THREE.BufferAttribute(index, 1));
       geo.computeBoundingSphere();
       sphereMeshes(data.spheres.length / 4).forEach((m, i) => { if (m.visible) { m.position.fromArray(data.spheres, 4 * i); m.scale.setScalar(data.spheres[4 * i + 3]); } });
       wheelMeshes(data.wheels.length / 3).forEach((m, i) => { if (m.visible) { m.position.fromArray(data.wheels, 3 * i); m.scale.setScalar(data.wheelRadius); } });
+      debris.geometry.setAttribute("position", new THREE.Float32BufferAttribute(data.debris, 3));
+      debris.material.size = DEBRIS_SIZE[apiRef.current.scenario];
       setDecel(data.decel && data.stats.timeMs > 0 ? data.decel : null);
       setStats(data.stats.timeMs > 0 ? data.stats : null);
+    }
+    worker.onmessage = ({ data }) => {
+      if (data.id !== idRef.current) return;                    // 이전 설정의 늦은 프레임
+      if (data.index) lastIndex = data.index;
+      const hist = historyRef.current;
+      if (!hist.length || data.finished || data.stats.timeMs >= hist.at(-1).data.stats.timeMs + data.durationMs / HISTORY) hist.push({ data, index: lastIndex });
+      if (scrubRef.current === null) show(data, lastIndex);
     };
     apiRef.current = {
-      worker, scenario: null,
+      worker, scenario: null, showFrame: show,
       show(key) {                                               // 시나리오가 바뀌면 소품·카메라를 바꾼다
         this.scenario = key;
         if (key === shown) return;
@@ -141,10 +161,19 @@ function CrashViewport({ scenario, pred, speed, slow, shot, label, camSync }) {
     const api = apiRef.current;
     api.show(scenario);
     idRef.current += 1;
+    historyRef.current = [];
     api.worker.postMessage({ type: "init", id: idRef.current, key: scenario, pred, speed });
     if (shot.running && shot.n !== firedRef.current) api.worker.postMessage({ type: "run" });
     firedRef.current = shot.n;
   }, [scenario, predKey, speed, shot]);
+
+  // 다시 보기: scrub(0~1) 위치의 장면을 보여 준다. null이면 실시간.
+  useEffect(() => {
+    const hist = historyRef.current;
+    if (!hist.length) return;
+    const entry = scrub === null ? hist.at(-1) : hist[Math.round(scrub * (hist.length - 1))];
+    apiRef.current.showFrame(entry.data, entry.index);
+  }, [scrub]);
 
   const sc = SCENARIOS[scenario], verdict = verdictOf(scenario, stats);
   return (
@@ -161,7 +190,7 @@ function CrashViewport({ scenario, pred, speed, slow, shot, label, camSync }) {
       )}
       {decel && decel.g.length > 1 && (
         <figure className="sb-decel">
-          <figcaption>{scenario === "car" ? "탑승 공간 감속도" : "뒤쪽(탑재부) 감속도"} <b>최대 {decel.peak.toFixed(0)} g</b></figcaption>
+          <figcaption>{scenario === "rocket" ? "뒤쪽(탑재부) 감속도" : "탑승 공간 감속도"} <b>최대 {decel.peak.toFixed(0)} g</b></figcaption>
           <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
             <polyline points={Array.from(decel.g, (g, i) => `${((100 * i) / Math.max(1, decel.total - 1)).toFixed(1)},${(39 - (38 * g) / Math.max(1, decel.peak)).toFixed(1)}`).join(" ")} />
           </svg>
@@ -184,10 +213,26 @@ export default function CrashLab({ materials, matKey: fixedKey, embedded = false
   const [slow, setSlow] = useState(SCENARIOS.plate.slow);
   const [shot, setShot] = useState({ n: 0, running: false });
   const camSync = useRef({ v: 0 });
+  const [scrub, setScrub] = useState(null);      // 다시 보기 위치 0~1, null = 실시간
+  const [replaying, setReplaying] = useState(false);
   const sc = SCENARIOS[scenario];
   const keyA = fixedKey ?? (materials[pickedKey] ? pickedKey : Object.keys(materials)[0]);
   const keyB = compareKey && compareKey !== keyA && materials[compareKey] ? compareKey : "";
   const views = [["a", keyA], ...(keyB ? [["b", keyB]] : [])];
+
+  // 조건이 바뀌거나 새로 쏘면 다시 보기를 끝낸다
+  useEffect(() => { setScrub(null); setReplaying(false); }, [scenario, keyA, keyB, speed, shot]);
+  // 다시 보기 재생: 6초에 걸쳐 처음부터 끝까지
+  useEffect(() => {
+    if (!replaying) return undefined;
+    const t0 = performance.now();
+    const timer = setInterval(() => {
+      const u = Math.min(1, (performance.now() - t0) / 6000);
+      setScrub(u);
+      if (u >= 1) setReplaying(false);
+    }, 33);
+    return () => clearInterval(timer);
+  }, [replaying]);
 
   function pickScenario(key) {
     setScenario(key);
@@ -240,12 +285,18 @@ export default function CrashLab({ materials, matKey: fixedKey, embedded = false
           <button type="button" className="sb-btn primary" onClick={() => setShot((s) => ({ n: s.n + 1, running: true }))}>발사</button>
           <button type="button" className="sb-btn" onClick={() => setShot((s) => ({ n: s.n + 1, running: false }))}>초기화</button>
         </div>
-        <div className="sb-legend">소성 변형 (파단 변형률 대비)<i /><span><b>0</b><b>파단</b></span></div>
+        <section className="sb-field">
+          <label htmlFor="sb-scrub">다시 보기</label>
+          <button type="button" className="sb-mini" disabled={!shot.running} onClick={() => setReplaying((r) => !r)}>{replaying ? "멈춤" : "처음부터 재생"}</button>
+          <input id="sb-scrub" type="range" min="0" max="1" step="0.005" disabled={!shot.running} value={scrub ?? 1}
+            onChange={(e) => { setReplaying(false); setScrub(Number(e.target.value)); }} />
+        </section>
+        <div className="sb-legend">재료 손상<i /><span><b>멀쩡</b><b>파단</b></span></div>
         <p className="sb-note">물성 기반의 실시간 근사 물리(노드-빔)입니다. 공학 해석(FEM)을 대신하지 않습니다. 마우스로 돌려 볼 수 있습니다.</p>
       </aside>
       <div className="sb-views">
         {views.map(([id, key]) => (
-          <CrashViewport key={id} scenario={scenario} pred={materials[key]} speed={speed} slow={slow} shot={shot} label={materials[key].label} camSync={camSync} />
+          <CrashViewport key={id} scenario={scenario} pred={materials[key]} speed={speed} slow={slow} shot={shot} label={materials[key].label} camSync={camSync} scrub={scrub} />
         ))}
       </div>
     </div>

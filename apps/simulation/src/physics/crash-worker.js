@@ -1,12 +1,12 @@
 // 충돌 물리를 화면과 다른 스레드에서 돌린다 — 화면(CrashLab.jsx)은 그리기만 한다.
 // 받는 메시지: { type: 'init', key, pred, speed } (발사 전 상태로 준비) · { type: 'run' } · { type: 'slow', slow }
-// 보내는 메시지: { type: 'frame', id, positions, colors, index?, spheres, wheels, wheelRadius, stats, decel?, finished }
+// 보내는 메시지: { type: 'frame', id, positions, colors, index?, spheres, wheels, wheelRadius, debris, durationMs, stats, decel?, finished }
 import { SCENARIOS, createSim } from './scenarios.js';
 
 let sim = null, simId = 0, slow = 500, running = false, startedAt = 0, timer = 0;
 const SAMPLE = 0.0005, SMOOTH = 12;   // 감속도 그래프용 속도 기록 간격(초)과 미분 간격(칸)
 
-// 누적 소성 변형률 / 파단 변형률: 0 회색 → 0.5 노랑 → 1 빨강
+// 손상(0 멀쩡 → 1 파단): 0 회색 → 0.5 노랑 → 1 빨강
 function damageColor(d, out, o) {
   const a = [0.56, 0.64, 0.72], b = [1.0, 0.82, 0.29], c = [1.0, 0.23, 0.19];
   const [p, q, t] = d < 0.5 ? [a, b, d * 2] : [b, c, (d - 0.5) * 2];
@@ -39,15 +39,24 @@ function postFrame(finished) {
   const positions = Float32Array.from(world.pos), colors = new Float32Array(3 * n);
   for (let a = 0; a < n; a += 1) {
     let d = 0;
-    for (const q of sim.incident[a]) d = Math.max(d, world.beamBroken[q] ? 1 : world.beamAlpha[q] / sim.mat.epsBreak);
+    for (const q of sim.incident[a]) d = Math.max(d, world.beamBroken[q] ? 1 : world.beamDamage[q]);
     damageColor(Math.min(1, d), colors, 3 * a);
   }
   const broken = world.brokenCount();
-  const msg = { type: 'frame', id: simId, positions, colors, finished,
+  // 파편: 붙은 빔의 절반 이상이 끊어진 노드 (면이 사라져 안 보이게 되는 조각을 점으로 그린다)
+  const debris = [];
+  if (broken > 0) {
+    for (let a = 0; a < n; a += 1) {
+      let cut = 0;
+      for (const q of sim.incident[a]) cut += world.beamBroken[q];
+      if (2 * cut >= sim.incident[a].length && cut > 0) debris.push(world.pos[3 * a], world.pos[3 * a + 1], world.pos[3 * a + 2]);
+    }
+  }
+  const msg = { type: 'frame', id: simId, positions, colors, finished, debris, durationMs: sim.duration * 1000,
     spheres: world.spheres.flatMap((s) => [...s.pos, s.radius]),
     wheels: (sim.wheels ?? []).flatMap((a) => [world.pos[3 * a], world.pos[3 * a + 1], world.pos[3 * a + 2]]), wheelRadius: sim.wheelRadius ?? 0,
-    stats: { ...sim.measure(), timeMs: sim.time * 1000, broken, total: world.beams.length, absorbed: world.plasticWork, ke0: sim.ke0 } };
-  if (sim.key !== 'plate') {
+    stats: { ...sim.measure(), finished, timeMs: sim.time * 1000, broken, total: world.beams.length, absorbed: world.plasticWork, ke0: sim.ke0 } };
+  if (sim.speeds && sim.key !== 'plate') {
     // 감속도(g) = 속도 기록을 SMOOTH칸(6 ms) 간격으로 미분 — 노드 진동과 첫 충격파의 뾰족한 값을 누그러뜨린다
     const v = sim.speeds, g = new Float32Array(Math.max(0, v.length - SMOOTH));
     let peak = 0;

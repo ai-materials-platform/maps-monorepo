@@ -33,7 +33,7 @@ function bodyMeasure(world, shell, wallX, length, ivRange = [0, 0]) {
 export const PLATE = { width: 0.4, height: 0.4, thickness: 0.002, spacing: 0.02 };
 export const BALL = { radius: 0.04, mass: 1.0, startZ: 0.16 };
 export const ROCKET = { radius: 0.15, body: 1.2, nose: 0.4, noseTip: 0.4, thickness: 0.002, payload: 20, wallX: 1.0, gap: 0.08, tilt: 0.05 };
-export const CAR = { length: 4.4, halfWidth: 0.9, bottom: 0.2, thickness: 0.0008, wallX: 2.6, gap: 0.15,
+export const CAR = { length: 4.4, halfWidth: 0.9, bottom: 0.2, thickness: 0.0008, wallX: 2.6, gap: 0.15, offsetZ: 0.18,   // offsetZ: 부분 정면 충돌에서 벽이 시작하는 z (차 폭의 40%만 걸린다)
   frontMass: 200, cabinMass: 420, panelCompress: 0.5, firewall: 0.85, cabin: [-1.0, 0.3],   // 위치는 차 중심 기준 x (m)
   // panelCompress: 10 cm 격자는 외판이 잘게 접히는 걸 못 풀어 실제보다 단단하다 → 외판의 압축 유동응력을 이만큼 낮춘다
   // 레일: 100×60×2 mm 상자 단면. nodeMass: 레일에 달린 부품 무게(노드당 kg). compress = 접히며 무너질 때의 평균 하중 / 단면이 통째로 항복하는 하중
@@ -99,7 +99,7 @@ export const SCENARIOS = {
     duration: (speed) => 2.2 / speed,
     // ponytail: 격자 한 칸이 10 cm라 얇은 부재가 접히는 걸 직접 못 푼다 — 레일은 압축 접힘 계수(compress)로 대신한다.
     // ponytail: 엔진은 묶여 있지 않은 강체 구, 바퀴는 구르기만 하는 노드(회전·조향·서스펜션 없음). 필요하면 강체+조인트로.
-    build(pred, speed) {
+    build(pred, speed, offset = false) {
       const C = CAR, world = new World({ gravity: [0, -9.81, 0] });
       const mat = { ...plateMaterial(pred), compress: C.panelCompress };
       const nTop = 18, nSide = 10, nu = 2 * (nTop + nSide), a = (2 * C.halfWidth) / nTop;
@@ -151,7 +151,7 @@ export const SCENARIOS = {
       }
       // 엔진: 엔진실 안의 강체 구
       world.addSphere([x0 + C.engine.x + C.length / 2, C.bottom + C.engine.radius + 0.02, 0], [speed, 0, 0], C.engine.radius, C.engine.mass);
-      world.addPlane([-1, 0, 0], -C.wallX, 0.3, 0.15);
+      world.addPlane([-1, 0, 0], -C.wallX, 0.3, 0.15, offset ? { axis: 2, min: C.offsetZ, max: Infinity } : null);
       world.addPlane([0, 1, 0], 0, 0.5, 0);
       world.contactDist = 0.8 * a;
       world.init();
@@ -161,6 +161,9 @@ export const SCENARIOS = {
     },
   },
 };
+SCENARIOS.carOffset = { ...SCENARIOS.car, label: '차량 부분 정면',
+  note: '같은 차량이 폭의 40%만 가리는 벽에 부딪힙니다. 벽에 걸린 쪽만 찌그러지고 차가 돌아갑니다.',
+  build: (pred, speed) => SCENARIOS.car.build(pred, speed, true) };
 
 export function createSim(key, pred, speed) {
   const sim = SCENARIOS[key].build(pred, speed);

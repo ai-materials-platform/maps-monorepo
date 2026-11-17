@@ -6,6 +6,9 @@ import { generateStressStrainCurve } from '../lib/physics.js';
 const TABLE = 256;
 // ponytail: 자기 접촉(접힌 면끼리 닿는 것)이 없어서, 빔이 길이 0까지 눌려 납작해지는 걸 이 한계로 막는다. 제대로 하려면 노드-면 충돌.
 const COMPRESS_LOCK = 0.5;
+// 손상: 인장 소성은 연신율만큼 쌓이면 파단. 압축(접힘) 소성은 그 COMPRESS_DAMAGE배까지 버틴다 → 취성 재료는 구겨지다 깨지고 연성 재료는 접힌다.
+// ponytail: 3배는 가정 값 (MAPS가 예측하는 물성이 아니다) — 압축·굽힘 파단 실험값이 있으면 그걸로.
+const COMPRESS_DAMAGE = 3;
 
 // 예측값({yieldStressMpa, strengthMpa, elongationPercent, elasticityGpa, density[g/cm³]}) → 재료.
 // 유동 곡선은 MAPS 응력-변형률 곡선(lib/physics.js)을 UTS까지 따라가고 그 뒤로는 UTS를 유지한다.
@@ -67,8 +70,10 @@ export class World {
   }
 
   // 움직이지 않는 평면. normal(단위 벡터) 쪽이 열린 공간, offset = normal·(평면 위의 점)
-  addPlane(normal, offset, friction = 0.3, restitution = 0) {
-    this.planes.push({ n: [...normal], d: offset, friction, restitution });
+  // bound = { axis, min, max }: 그 좌표 범위만 차지하는 벽 (차 폭의 일부만 가린다). 범위 끝에는 옆면이 있어서,
+  // 벽 옆을 지나친 노드가 벽 속으로 들어오면 앞면이 아니라 가까운 옆면으로 밀려 나온다.
+  addPlane(normal, offset, friction = 0.3, restitution = 0, bound = null) {
+    this.planes.push({ n: [...normal], d: offset, friction, restitution, bound });
   }
 
   addSphere(pos, vel, radius, mass) {
@@ -89,6 +94,7 @@ export class World {
     const nb = this.beams.length;
     this.beamEp = new Float64Array(nb);       // 소성 변형률 (부호 있음)
     this.beamAlpha = new Float64Array(nb);    // 누적 소성 변형률
+    this.beamDamage = new Float64Array(nb);   // 손상 0 → 1(파단)
     this.beamBroken = new Uint8Array(nb);
     this.beamStress = new Float64Array(nb);   // 화면 색칠용
     // 굽힘의 기준 모양 = 처음 모양 (평판은 0, 곡면은 처음 곡률)
@@ -145,6 +151,8 @@ export class World {
         this.beamAlpha[b] += dg;
         stress -= sign * mat.E * dg;
         this.plasticWork += Math.abs(stress) * dg * A * L0;
+        this.beamDamage[b] += dg / (mat.epsBreak * (sign > 0 ? 1 : COMPRESS_DAMAGE));
+        if (this.beamDamage[b] >= 1) { this.beamBroken[b] = 1; this.beamStress[b] = 0; continue; }
       }
       this.beamStress[b] = stress;
       const nx = dx / L, ny = dy / L, nz = dz / L;
@@ -207,9 +215,18 @@ export class World {
     // 벽·바닥: 파고든 노드를 면 위로 되돌리고 법선 속도를 없앤다(비탄성) + 쿨롱 마찰
     for (const pl of this.planes) {
       const [nx, ny, nz] = pl.n;
+      const inside = (p, o, r = 0) => !pl.bound || (p[o + pl.bound.axis] + r >= pl.bound.min && p[o + pl.bound.axis] - r <= pl.bound.max);
       for (let a = 0; a < n; a += 1) {
+        if (!inside(pos, 3 * a)) continue;
         const depth = pl.d + this.radius[a] - (pos[3 * a] * nx + pos[3 * a + 1] * ny + pos[3 * a + 2] * nz);
         if (depth <= 0) continue;
+        if (pl.bound) {
+          const c = 3 * a + pl.bound.axis, toMin = pos[c] - pl.bound.min, toMax = pl.bound.max - pos[c];
+          if (Math.min(toMin, toMax) < depth) {                 // 옆면이 더 가깝다 → 옆으로 밀어내고 벽 속으로 향하는 속도만 없앤다
+            if (toMin < toMax) { pos[c] = pl.bound.min; vel[c] = Math.min(0, vel[c]); } else { pos[c] = pl.bound.max; vel[c] = Math.max(0, vel[c]); }
+            continue;
+          }
+        }
         pos[3 * a] += depth * nx; pos[3 * a + 1] += depth * ny; pos[3 * a + 2] += depth * nz;
         const vn = vel[3 * a] * nx + vel[3 * a + 1] * ny + vel[3 * a + 2] * nz;
         if (vn >= 0) continue;
@@ -221,7 +238,7 @@ export class World {
       }
       for (const sp of this.spheres) {   // 강체 구도 벽·바닥에 막힌다
         const depth = pl.d + sp.radius - (sp.pos[0] * nx + sp.pos[1] * ny + sp.pos[2] * nz);
-        if (depth <= 0) continue;
+        if (depth <= 0 || depth > sp.radius || !inside(sp.pos, 0, sp.radius)) continue;   // 깊이 들어간 구는 옆으로 지나친 것
         sp.pos[0] += depth * nx; sp.pos[1] += depth * ny; sp.pos[2] += depth * nz;
         const vn = sp.vel[0] * nx + sp.vel[1] * ny + sp.vel[2] * nz;
         if (vn >= 0) continue;

@@ -120,6 +120,14 @@ test('same impact, different alloy: ductile steel dents and stops the ball, brit
   assert.ok(d.w.plasticWork > 2 * b.w.plasticWork);                              // 연성이 에너지를 더 흡수
 });
 
+test('crushing breaks a brittle beam but only folds a ductile one', () => {
+  const b = pullSingleBeam(materialFromPrediction(BRITTLE), (u) => -0.3 * u);
+  const brokeAt = b.find((r) => r.broken);
+  assert.ok(brokeAt && brokeAt.eps < -0.08 && brokeAt.eps > -0.12, `brittle broke at ${brokeAt?.eps}`);   // 연신율 3% × 3
+  const d = pullSingleBeam(materialFromPrediction(DUCTILE), (u) => -0.8 * u);
+  assert.ok(!d.at(-1).broken);
+});
+
 test('a thin-walled member (compress < 1) yields early in compression only', () => {
   const mat = { ...materialFromPrediction(MID), compress: 0.25 };
   const pull = pullSingleBeam(mat, (u) => 0.01 * u), push = pullSingleBeam(mat, (u) => -0.01 * u);
@@ -153,6 +161,16 @@ test('rocket body into a wall: ductile steel crumples in one piece, brittle allo
   assert.ok(d.brokenFrac < 0.005, `ductile broken ${d.brokenFrac}`);
   assert.ok(b.brokenFrac > 0.02, `brittle broken ${b.brokenFrac}`);
   assert.ok(d.sim.world.plasticWork > 0.5 * d.sim.ke0);            // 운동에너지 대부분이 소성 변형으로
+});
+
+test('offset car crash never absorbs more energy than the car had', () => {
+  const { sim, m } = crash('carOffset', DUCTILE, 15, 0.1);
+  const w = sim.world;
+  assert.ok(w.plasticWork + w.kineticEnergy() < 1.02 * sim.ke0, `plastic ${w.plasticWork} + KE ${w.kineticEnergy()} vs ${sim.ke0}`);
+  assert.ok(m.deformMm > 300, `crush ${m.deformMm}`);                 // 걸린 쪽이 더 깊이 찌그러진다
+  let vz = 0;
+  for (let a = 0; a < w.n; a += 1) vz += w.mass[a] * w.vel[3 * a + 2];
+  assert.ok(vz < 0, `sideways momentum ${vz}`);                        // 벽(+z 쪽)에서 밀려나는 방향으로 돈다
 });
 
 test('car into a wall at 54 km/h stops with a plausible crush length', () => {

@@ -7,9 +7,9 @@ const PRESETS = {
   mid:     { label: "중간 (고강도 강)",   yieldStressMpa: 450, strengthMpa: 700, elongationPercent: 18, elasticityGpa: 200, density: 7.8 },
   brittle: { label: "취성 (연신율 3%)",   yieldStressMpa: 900, strengthMpa: 1000, elongationPercent: 3, elasticityGpa: 200, density: 7.8 },
 };
-// 시뮬 앱(App.jsx)과 같은 백엔드·같은 공정 조건 (용체화 1050 °C · 1시간, 상온 시험)
+// 시뮬 앱(App.jsx)과 같은 백엔드·같은 공정 조건 (용체화 1050 °C · 1시간). 시험 온도는 화면에서 고른다.
 const BACKEND = "http://127.0.0.1:8765";
-const PROCESS = { "Solution_treatment_temperature": 1050 + 273.15, "Solution_treatment_time(s)": 3600, "Temperature (K)": 293 };
+const PROCESS = { "Solution_treatment_temperature": 1050 + 273.15, "Solution_treatment_time(s)": 3600 };
 
 // "Fe 70, Cr 18, Ni 9" → { Fe: 70, Cr: 18, Ni: 9 }
 function parseComposition(text) {
@@ -22,6 +22,7 @@ export default function Sandbox() {
   const [materials, setMaterials] = useState(PRESETS);
   const [compText, setCompText] = useState("Fe 70, Cr 18, Ni 9, Mn 1.5, C 0.05");
   const [fetchState, setFetchState] = useState("");
+  const [tempC, setTempC] = useState(20);
 
   async function fetchPrediction() {
     const composition = parseComposition(compText);
@@ -29,11 +30,11 @@ export default function Sandbox() {
     setFetchState("예측 중…");
     try {
       const res = await fetch(`${BACKEND}/predict`, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ composition, densityScale: 0.6, process: PROCESS }) });
+        body: JSON.stringify({ composition, densityScale: 0.6, process: { ...PROCESS, "Temperature (K)": tempC + 273.15 } }) });
       if (!res.ok) throw new Error(String(res.status));
       const r = await res.json();
-      const label = `MAPS 예측 · ${Object.entries(composition).map(([el, v]) => `${el}${v}`).join(" ")}`;
-      setMaterials((m) => ({ ...m, maps: { label, yieldStressMpa: r.yieldStressMpa, strengthMpa: r.strengthMpa, elongationPercent: r.elongationPercent,
+      const label = `MAPS 예측 · ${Object.entries(composition).map(([el, v]) => `${el}${v}`).join(" ")} · ${tempC} °C`;
+      setMaterials((m) => ({ ...m, [`maps-${Object.keys(m).length}`]: { label, yieldStressMpa: r.yieldStressMpa, strengthMpa: r.strengthMpa, elongationPercent: r.elongationPercent,
         elasticityGpa: r.elasticityGpa, density: r.density } }));
       setFetchState("재료 목록에 추가했습니다.");
     } catch {
@@ -46,6 +47,8 @@ export default function Sandbox() {
       <form className="sb-maps" onSubmit={(e) => { e.preventDefault(); fetchPrediction(); }}>
         <label htmlFor="sb-comp">MAPS 모델로 예측 (조성, wt%)</label>
         <input id="sb-comp" type="text" value={compText} onChange={(e) => setCompText(e.target.value)} spellCheck="false" />
+        <label htmlFor="sb-temp">시험 온도 (°C)</label>
+        <input id="sb-temp" type="number" min="20" max="900" step="10" value={tempC} onChange={(e) => setTempC(Number(e.target.value))} />
         <button type="submit" className="sb-btn">물성 예측 받기</button>
         {fetchState && <p className="sb-note" role="status">{fetchState}</p>}
       </form>
