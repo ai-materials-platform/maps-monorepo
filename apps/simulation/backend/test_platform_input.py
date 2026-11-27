@@ -10,7 +10,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from simulation_server import build_platform_input, find_out_of_range  # noqa: E402
+from simulation_server import build_platform_input, elastic_modulus_gpa, find_out_of_range  # noqa: E402
 
 TRAIN_RANGE = {
     "Solution_treatment_temperature": (1279, 1473),  # K
@@ -37,7 +37,15 @@ def test_out_of_range_flags_only_inputs_outside_training_data():
     assert find_out_of_range(build_platform_input({"Cr": 21.1, "Ni": 10}), ranges) == []
 
 
+def test_elastic_modulus_follows_austenitic_table():
+    assert elastic_modulus_gpa(293.15) == 195            # 상온 오스테나이트계 약 195 GPa
+    assert elastic_modulus_gpa(250) == 195               # 표 아래쪽은 끝값
+    assert abs(elastic_modulus_gpa(273.15 + 450) - 163) < 1e-9   # 400 °C 167과 500 °C 159 사이
+    assert elastic_modulus_gpa(2000) == 120              # 표 위쪽은 끝값
+
+
 if __name__ == "__main__":
     test_defaults_inside_training_range()
     test_out_of_range_flags_only_inputs_outside_training_data()
+    test_elastic_modulus_follows_austenitic_table()
     print("ok - platform input defaults inside training range")

@@ -150,6 +150,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   gap: 6px;
 }
 
+.temp-curve-note { margin: 0; font-size: 11px; color: var(--text-muted); }
+
 /* 예측 입력이 모델 학습 범위를 벗어났을 때 */
 .range-warning { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--warning); border-radius: var(--maps-radius-sm);
   color: var(--maps-text); font-size: 11px; line-height: 1.5; }

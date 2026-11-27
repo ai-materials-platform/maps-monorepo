@@ -385,6 +385,23 @@ def run_platform_prediction(raw_composition, process=None):
     return result
 
 
+# 오스테나이트계 스테인리스강의 온도별 탄성계수 (°C, GPa). ASME BPVC II-D Table TM-1 값을 반올림한 근사.
+# 사전학습 모델이 탄성계수를 예측하지 않아 문헌값을 쓴다(모델 학습 범위가 오스테나이트계라 같은 강종군).
+AUSTENITIC_MODULUS = [(20, 195), (100, 189), (200, 182), (300, 175), (400, 167), (500, 159), (600, 151), (700, 143), (800, 135), (1000, 120)]
+
+
+def elastic_modulus_gpa(temperature_k):
+    """시험 온도(K) → 탄성계수(GPa). 표 사이는 직선 보간, 범위 밖은 끝값."""
+    t = float(temperature_k) - 273.15
+    table = AUSTENITIC_MODULUS
+    if t <= table[0][0]:
+        return float(table[0][1])
+    for (t0, e0), (t1, e1) in zip(table, table[1:]):
+        if t <= t1:
+            return e0 + (e1 - e0) * (t - t0) / (t1 - t0)
+    return float(table[-1][1])
+
+
 def platform_prediction_to_sim_prediction(raw_composition, density_scale, platform_prediction):
     base = predict_properties(raw_composition, density_scale, use_platform=False)
     composition_keys = [
@@ -407,7 +424,7 @@ def platform_prediction_to_sim_prediction(raw_composition, density_scale, platfo
     uncertainty_avg = sum(abs(value) for value in uncertainty.values()) / max(len(uncertainty), 1)
 
     confidence = max(55.0, min(98.5, 96.0 - uncertainty_avg * 0.18))
-    elasticity = max(95.0, min(230.0, 110.0 + yield_stress * 0.045 - elongation * 0.28))
+    elasticity = elastic_modulus_gpa(platform_input.get("Temperature (K)", 293))
     stability = max(35.0, min(99.0, 64.0 + area_reduction * 0.22 + yield_stress * 0.012 - elongation * 0.08))
 
     return {
@@ -486,7 +503,11 @@ def simulate_test(raw_composition, density_scale, test_type, scale):
     ductility = prediction.get("elongationPercent", 18.0) / 18.0
     reduction = prediction.get("areaReductionPercent", 45.0) / 45.0
     stress = prediction["strengthMpa"] * factors["stress_load"] * density_effect / scale_effect
-    strain = (prediction["elasticityGpa"] / 150) * factors["strain_load"] * scale_effect * max(0.55, ductility)
+    # 변형률 크기는 시각화용 경험식으로 정한다. 예전에는 탄성계수 값을 그대로 썼는데, 탄성계수를 문헌값(약 195 GPa)으로
+    # 바꾸면서 결과가 1.9배 커져 같은 이 경험식(옛 탄성계수 식)을 여기서만 쓴다 — 숫자는 바뀌기 전과 같다.
+    yield_stress = prediction.get("yieldStressMpa", prediction["strengthMpa"] * 0.7)
+    strain_scale = max(95.0, min(230.0, 110.0 + yield_stress * 0.045 - prediction.get("elongationPercent", 18.0) * 0.28)) / 150
+    strain = strain_scale * factors["strain_load"] * scale_effect * max(0.55, ductility)
     temperature = prediction["meltingPoint"] * factors["thermal_load"] * (0.78 + density_scale * 0.26)
     deformation = min(38.0, strain * 5.2 * max(0.72, reduction))
     safety = max(4.0, 100 - deformation * 1.6 - max(0, temperature - 850) * 0.035)
