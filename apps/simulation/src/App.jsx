@@ -576,7 +576,9 @@ function App() {
   const [view, setView] = useState("specimen");
   const [crashExtras, setCrashExtras] = useState({});   // 충돌 시뮬 비교용: 같은 합금을 다른 시험 온도로 예측한 물성
   const [crashTemp, setCrashTemp] = useState(700);
-  const [crashTempNote, setCrashTempNote] = useState("");   // 가운데 화면: "specimen"(시편 시험) | "crash"(충돌 시뮬)
+  const [crashTempNote, setCrashTempNote] = useState("");
+  // 온도별 예측 물성 곡선: 지금 조성·공정으로 시험 온도만 바꿔 예측한 결과. key가 지금 입력과 다르면 다시 그려야 한다.
+  const [tempCurve, setTempCurve] = useState({ key: "", rows: [], busy: false, error: "" });   // 가운데 화면: "specimen"(시편 시험) | "crash"(충돌 시뮬)
   const [interactMode, setInteractMode] = useState("orbit");
   const orbitEnabledRef = useRef(true);
   const [resetKey, setResetKey] = useState(0);
@@ -638,6 +640,22 @@ function App() {
     return [alloy.id, { label: alloy.name, yieldStressMpa: p.yieldStressMpa ?? p.strengthMpa * 0.7, strengthMpa: p.strengthMpa,
       elongationPercent: p.elongationPercent, elasticityGpa: p.elasticityGpa, density: p.density }];
   }).concat(Object.entries(crashExtras))), [alloys, selectedAlloy.id, prediction, crashExtras]);
+
+  const tempCurveKey = JSON.stringify([composition, densityScale, process["Solution_treatment_temperature"], process["Solution_treatment_time(s)"], simModel]);
+  async function runTempCurve() {
+    setTempCurve({ key: tempCurveKey, rows: [], busy: true, error: "" });
+    try {
+      const rows = await Promise.all(TEMP_CURVE_C.map(async (c) => {
+        const raw = await postBackend("/predict", { composition, densityScale, model: simModel,
+          process: { ...toModelProcess(process), "Temperature (K)": c + 273.15 } });
+        const p = normalizeBackendPrediction(raw, composition);
+        return { c, ys: p.yieldStressMpa, uts: p.strengthMpa, el: p.elongationPercent };
+      }));
+      setTempCurve({ key: tempCurveKey, rows, busy: false, error: "" });
+    } catch {
+      setTempCurve({ key: tempCurveKey, rows: [], busy: false, error: "예측 서버에 연결하지 못했습니다." });
+    }
+  }
 
   async function addCrashTemperature() {
     setCrashTempNote("예측 중…");
@@ -1722,6 +1740,17 @@ function App() {
               yieldStress={prediction.yieldStressMpa ?? prediction.strengthMpa * 0.70}
               elongation={prediction.elongationPercent ?? Math.max(5, 50 - prediction.strengthMpa / 40)}
             />
+          </section>
+          <section className="analytics-card">
+            <SectionTitle icon={Thermometer} title="온도별 예측 물성" />
+            {tempCurve.key === tempCurveKey && tempCurve.rows.length > 0
+              ? <TempCurveChart rows={tempCurve.rows} currentC={Number(process["Temperature (K)"]) - 273.15} />
+              : <p className="temp-curve-note">지금 조성으로 시험 온도만 20~900 °C로 바꿔 예측합니다. 이 모델은 조성보다 시험 온도에 크게 반응합니다.</p>}
+            {tempCurve.error && <p className="temp-curve-note" role="status">{tempCurve.error}</p>}
+            <button className="command" style={{ width: "100%", marginTop: 6 }} disabled={tempCurve.busy} onClick={runTempCurve}>
+              {tempCurve.busy ? <LoadingSpinner /> : <Thermometer size={15} />}
+              {tempCurve.busy ? "예측 중..." : tempCurve.key === tempCurveKey && tempCurve.rows.length ? "다시 그리기" : "온도별 예측 그리기"}
+            </button>
           </section>
           <section className="analytics-card">
             <SectionTitle icon={Gauge} title="시뮬레이션 통계" />
@@ -3527,6 +3556,33 @@ function Readout({ label, value }) {
 // 차트 SVG는 폭에 맞춰 늘어나므로(preserveAspectRatio="none") 글자는 SVG 밖 HTML로 그리고
 // 선은 non-scaling-stroke로 두께를 고정한다. SVG 안 <text>는 늘어나서 찌그러지고 잘린다.
 const chartLabel = { position: "absolute", fontSize: 10, fontFamily: "var(--mono)", whiteSpace: "nowrap", lineHeight: 1 };
+
+const TEMP_CURVE_C = [20, 100, 200, 300, 400, 500, 600, 700, 800, 900];   // 학습 데이터 시험 온도 20~1000 °C 안
+
+// 온도(가로) — 항복강도·인장강도(세로, MPa). 점선은 지금 설정한 시험 온도.
+function TempCurveChart({ rows, currentC }) {
+  const top = Math.max(...rows.map((r) => r.uts)) * 1.08;
+  const x = (c) => ((c - TEMP_CURVE_C[0]) / (TEMP_CURVE_C.at(-1) - TEMP_CURVE_C[0])) * 100;
+  const line = (key) => rows.map((r) => `${x(r.c).toFixed(1)},${(100 - (r[key] / top) * 100).toFixed(1)}`).join(" ");
+  const first = rows[0], last = rows.at(-1);
+  return (
+    <div>
+      <svg className="mini-chart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img"
+        aria-label={`인장강도 ${Math.round(first.uts)}→${Math.round(last.uts)} MPa, 항복강도 ${Math.round(first.ys)}→${Math.round(last.ys)} MPa (${first.c}→${last.c} °C)`}>
+        {currentC >= TEMP_CURVE_C[0] && currentC <= TEMP_CURVE_C.at(-1) && (
+          <line x1={x(currentC)} x2={x(currentC)} y1="0" y2="100" stroke="var(--text-muted)" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+        )}
+        <polyline points={line("uts")} fill="none" stroke="#2F80ED" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        <polyline points={line("ys")} fill="none" stroke="#E0A000" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+      </svg>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--mono)" }}>
+        <span>{first.c} °C</span>
+        <span><span style={{ color: "#2F80ED" }}>UTS {Math.round(first.uts)}→{Math.round(last.uts)}</span> · <span style={{ color: "#E0A000" }}>YS {Math.round(first.ys)}→{Math.round(last.ys)}</span> MPa</span>
+        <span>{last.c} °C</span>
+      </div>
+    </div>
+  );
+}
 
 function ThermalChart({ values, peakC, color }) {
   const points = values.map((value, index) => `${(index / (values.length - 1)) * 100},${100 - value}`).join(" ");
